@@ -1,0 +1,15 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.next/
+
+# per-developer tool config/caches — not shared team config
+*.local.json
+.impeccable/hook.cache.json
+
+# withheld from the repo for now
+/DESIGN.md
+/PRODUCT.md
