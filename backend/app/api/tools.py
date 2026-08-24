@@ -2,7 +2,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
-from app.db import get_user_client
+from app.db import fetch_maybe_one, get_user_client
 from app.models import ToolCreate, ToolInvokeResult, ToolOut
 from app.tools.rest_adapter import ToolConfigError
 from app.tools.rest_adapter import invoke as rest_invoke
@@ -41,7 +41,7 @@ def list_tools(project_id: str, user: dict = Depends(get_current_user)):
 @router.post("/tools/{tool_id}/invoke", response_model=ToolInvokeResult)
 def invoke_tool(tool_id: str, input: dict, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    tool = client.table("tools").select("*").eq("id", tool_id).maybe_single().execute().data
+    tool = fetch_maybe_one(client.table("tools").select("*").eq("id", tool_id))
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
 

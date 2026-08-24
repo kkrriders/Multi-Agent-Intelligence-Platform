@@ -120,6 +120,18 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
                 Agent thread
               </p>
               <p>{run.output}</p>
+              {run.citations && run.citations.length > 0 && (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {run.citations.map((citation) => (
+                    <li
+                      key={citation.index}
+                      className="border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      [{citation.index}] {citation.filename}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ))}
           {latestRun && <Timeline events={latestRun.events} />}

@@ -44,11 +44,19 @@ class RunEventOut(BaseModel):
     created_at: datetime
 
 
+class Citation(BaseModel):
+    index: int
+    document_id: str
+    filename: str
+    content: str
+
+
 class RunOut(BaseModel):
     id: str
     status: str
     output: str | None
     events: list[RunEventOut]
+    citations: list[Citation] = []
 
 
 class ToolCreate(BaseModel):
@@ -70,3 +78,14 @@ class ToolOut(BaseModel):
 class ToolInvokeResult(BaseModel):
     status: int
     body: str
+
+
+class DocumentOut(BaseModel):
+    id: str
+    project_id: str
+    filename: str
+    mime_type: str
+    storage_path: str
+    status: str
+    error: str | None = None
+    created_at: datetime

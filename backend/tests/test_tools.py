@@ -45,3 +45,12 @@ def test_create_list_and_invoke_tool(auth_headers):
     invoke_response = client.post(f"/tools/{tool['id']}/invoke", json={}, headers=auth_headers)
     assert invoke_response.status_code == 200
     assert invoke_response.json()["status"] == 200
+
+
+@pytest.mark.skipif(
+    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
+    reason="Real Supabase project required for this integration test",
+)
+def test_invoke_nonexistent_tool_returns_404(auth_headers):
+    response = client.post("/tools/00000000-0000-0000-0000-000000000000/invoke", json={}, headers=auth_headers)
+    assert response.status_code == 404

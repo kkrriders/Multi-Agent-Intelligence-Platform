@@ -5,6 +5,7 @@ import WorkspaceNav, { type WorkspaceTab } from './WorkspaceNav'
 import ChatPanel from './ChatPanel'
 import ToolManagerPanel from './ToolManagerPanel'
 import MemoryExplorerPanel from './MemoryExplorerPanel'
+import KnowledgeHubPanel from './KnowledgeHubPanel'
 import EmptyStatePanel from './EmptyStatePanel'
 
 const EMPTY_STATES: Record<string, { title: string; phase: number; description: string }> = {
@@ -12,11 +13,6 @@ const EMPTY_STATES: Record<string, { title: string; phase: number; description: 
     title: 'Prompt Manager',
     phase: 2,
     description: 'Template library with variables, version history, and test-run.',
-  },
-  'knowledge-hub': {
-    title: 'Knowledge Hub',
-    phase: 1,
-    description: 'Upload, indexing status, search, chunk inspection, citations.',
   },
   guardrails: {
     title: 'Guardrails',
@@ -68,6 +64,12 @@ export default function ProjectWorkspace({ projectId }: { projectId: string }) {
           <>
             <h1 className="font-heading text-2xl font-bold uppercase mb-6">Tool Manager</h1>
             <ToolManagerPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'knowledge-hub' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Knowledge Hub</h1>
+            <KnowledgeHubPanel projectId={projectId} />
           </>
         )}
         {tab === 'memory-explorer' && (

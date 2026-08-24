@@ -142,4 +142,60 @@ describe('api client', () => {
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) })
     )
   })
+
+  it('uploadDocument sends an authorized multipart POST request', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'doc-1',
+        project_id: 'project-1',
+        filename: 'notes.txt',
+        mime_type: 'text/plain',
+        storage_path: 'project-1/doc-1/notes.txt',
+        status: 'indexed',
+        error: null,
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+    }) as unknown as typeof fetch
+
+    const { uploadDocument } = await import('./api')
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
+    await uploadDocument('project-1', file)
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/projects/project-1/documents'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+        body: expect.any(FormData),
+      })
+    )
+  })
+
+  it('listDocuments sends an authorized GET request', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => [] }) as unknown as typeof fetch
+
+    const { listDocuments } = await import('./api')
+    await listDocuments('project-1')
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/projects/project-1/documents'),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) })
+    )
+  })
+
+  it('deleteDocument sends an authorized DELETE request', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'deleted' }) }) as unknown as typeof fetch
+
+    const { deleteDocument } = await import('./api')
+    await deleteDocument('project-1', 'doc-1')
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/projects/project-1/documents/doc-1'),
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+      })
+    )
+  })
 })

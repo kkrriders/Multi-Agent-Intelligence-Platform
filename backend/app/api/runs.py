@@ -5,8 +5,11 @@ from app.db import fetch_maybe_one, get_user_client
 from app.graph import agent_graph
 from app.memory import history_to_messages, search_memory, upsert_memory
 from app.models import RunCreate, RunOut
+from app.rag import retrieve_chunks
 
 router = APIRouter(tags=["runs"])
+
+CITATION_CONTENT_CHARS = 500
 
 
 @router.post("/conversations/{conversation_id}/runs", response_model=RunOut)
@@ -33,6 +36,17 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
     memories = search_memory(project_id, body.input)
     memory_context = [f"User: {m['input']}\nAssistant: {m['output']}" for m in memories]
 
+    chunks = retrieve_chunks(client, project_id, body.input)
+    citations = [
+        {
+            "index": i + 1,
+            "document_id": chunk["document_id"],
+            "filename": chunk["filename"],
+            "content": chunk["content"][:CITATION_CONTENT_CHARS],
+        }
+        for i, chunk in enumerate(chunks)
+    ]
+
     run = client.table("runs").insert(
         {
             "project_id": project_id,
@@ -56,8 +70,23 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
             }
         ).execute()
 
+    if chunks:
+        client.table("run_events").insert(
+            {
+                "run_id": run_id,
+                "step_name": "retrieval_performed",
+                "payload": {"count": len(chunks), "top_score": chunks[0]["score"]},
+            }
+        ).execute()
+
     result = agent_graph.invoke(
-        {"input": body.input, "output": "", "history": history, "memory_context": memory_context}
+        {
+            "input": body.input,
+            "output": "",
+            "history": history,
+            "memory_context": memory_context,
+            "retrieved_chunks": chunks,
+        }
     )
 
     client.table("run_events").insert(
@@ -71,7 +100,7 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
     upsert_memory(run_id, project_id, conversation_id, body.input, result["output"])
 
     events = client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute().data
-    return {**updated, "events": events}
+    return {**updated, "events": events, "citations": citations}
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)

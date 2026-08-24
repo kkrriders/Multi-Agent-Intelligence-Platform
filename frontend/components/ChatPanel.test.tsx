@@ -33,4 +33,22 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(screen.getByText('pong')).toBeInTheDocument())
     expect(screen.getByText('run_started')).toBeInTheDocument()
   })
+
+  it('renders citations returned with a run', async () => {
+    createRun.mockResolvedValueOnce({
+      id: 'run-2',
+      status: 'completed',
+      output: 'Bluebird',
+      events: [],
+      citations: [{ index: 1, document_id: 'doc-1', filename: 'launch-notes.txt', content: 'The codeword is Bluebird.' }],
+    })
+
+    const { default: ChatPanel } = await import('./ChatPanel')
+    render(<ChatPanel projectId="project-1" />)
+
+    fireEvent.change(screen.getByLabelText(/message/i), { target: { value: 'what is the codeword' } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => expect(screen.getByText(/launch-notes\.txt/i)).toBeInTheDocument())
+  })
 })

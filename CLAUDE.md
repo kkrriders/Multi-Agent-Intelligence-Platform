@@ -16,25 +16,34 @@ This CLAUDE.md only covers execution rules; it does not restate the spec.
 Phase 0 (walking skeleton), Phase 1 sub-project 1 (tool calling + "Signal &
 Trace" design system, per
 `docs/superpowers/specs/2026-08-09-phase1-tool-calling-and-design-system.md`),
-and Phase 1 sub-project 2 (memory, per
+Phase 1 sub-project 2 (memory, per
 `docs/superpowers/specs/2026-08-11-phase1-memory-design.md` and
-`docs/superpowers/plans/2026-08-11-phase1-memory.md`) are all implemented and
-verified live as of 2026-08-17. All three migrations (`0001_init.sql`,
-`0002_tools.sql`, `0003_memory.sql`) are applied; Supabase Auth email
-confirmation is disabled for test signups. Qdrant is wired into
-`docker-compose.yml` as a `qdrant` service (self-hosted, port 6333).
+`docs/superpowers/plans/2026-08-11-phase1-memory.md`), and Phase 1
+sub-project 3 (RAG, per
+`docs/superpowers/specs/2026-08-22-phase1-rag-design.md` and
+`docs/superpowers/plans/2026-08-22-phase1-rag.md`) are all implemented and
+verified live as of 2026-08-22. All four migrations (`0001_init.sql`,
+`0002_tools.sql`, `0003_memory.sql`, `0004_rag.sql`) are applied; Supabase
+Auth email confirmation is disabled for test signups. Qdrant is wired into
+`docker-compose.yml` as a `qdrant` service (self-hosted, port 6333). A
+private Supabase Storage bucket, `documents`, holds uploaded RAG source
+files, with RLS on `storage.objects` scoping access by project ownership.
 
 Verified against the real stack (real Supabase + Groq + Qdrant, no mocking):
-29/30 backend pytest cases pass — the one failure
+46/47 backend pytest cases pass — the one failure
 (`test_tools.py::test_create_list_and_invoke_tool`) is external `httpbin.org`
 flakiness (503/timeout from httpbin itself), unrelated to any code here. All
-24 frontend vitest cases pass. 3/4 Playwright E2E specs pass
-(`golden-path.spec.ts`, `memory-recall.spec.ts` ×2); `tool-calling.spec.ts`
-fails for the same unrelated httpbin reason.
+30 frontend vitest cases pass. Playwright E2E: `golden-path.spec.ts`,
+`memory-recall.spec.ts` (×2), and `rag.spec.ts` all pass when run serially;
+`tool-calling.spec.ts` fails for the same unrelated httpbin reason. Running
+the full E2E suite in parallel can also transiently fail unrelated specs
+under concurrent-signup load against the single Supabase project — this is
+resource contention in this environment, not a product bug.
 
-Two pre-existing bugs, both outside the Memory sub-project's original scope,
-were found and fixed because Memory's new integration tests were the first
-to exercise these paths against real Supabase:
+Three pre-existing bugs, all outside their discovering sub-project's
+original scope, were found and fixed because each sub-project's new
+integration tests were the first to exercise these paths against the real
+stack:
 - `app/auth.py`'s JWT verification had no clock-skew leeway, so any client
   clock a few seconds behind Supabase's server clock made every fresh login
   fail with "the token is not yet valid". Fixed with `leeway=30` in
@@ -43,20 +52,39 @@ to exercise these paths against real Supabase:
   outright (not a response with `.data = None`) when zero rows match, which
   crashed every "not found" 404 path once actually exercised with a real,
   authenticated, non-owning request. Fixed with a `fetch_maybe_one()` helper
-  in `app/db.py`, applied in `runs.py` (`create_run`, `get_run`) and
-  `memories.py`. **Not yet applied to `tools.py::invoke_tool`**, which has
-  the identical latent bug — worth a follow-up fix when that file is next
-  touched.
+  in `app/db.py`, applied in `runs.py` (`create_run`, `get_run`),
+  `memories.py`, and `tools.py::invoke_tool` (fixed 2026-08-18, with a
+  `test_invoke_nonexistent_tool_returns_404` regression test).
+- `app/db.py::get_user_client` only propagated the authenticated user's JWT
+  to the Postgres client (`client.postgrest.auth(token)`), not to the
+  Storage client, which silently used the anon key for every Storage
+  request. This went unnoticed until RAG's document upload needed
+  owner-scoped Storage RLS. Fixed by also setting
+  `client.options.headers["Authorization"]` before `client.storage` is
+  first accessed (fixed 2026-08-22, with a `test_get_user_client_sets_
+  bearer_token_for_storage_requests` regression test).
+
+RAG's own frontend also had a real race condition, not a pre-existing bug:
+`KnowledgeHubPanel`'s mount-time `listDocuments()` fetch could resolve
+*after* a fast local upload (the first embedding call downloads model
+weights, briefly making the upload request the slow one), silently
+overwriting the just-uploaded document with the stale empty list. Fixed
+with a `hasLocalUpdate` ref guard, the same pattern `ChatPanel` already uses
+(`skipNextFetch`) for an analogous race.
 
 Next up per the master spec's sequencing (Tool Calling → Memory → RAG →
-Multi-Agent Orchestration): the RAG sub-project — no spec/plan written yet.
-Explicitly deferred from Phase 1 sub-project 1 (not started): SQL/Python/
-GitHub tool adapters, and wiring tool calls into the LangGraph agent's
-reasoning loop (belongs to the Multi-Agent Orchestration sub-project).
-Explicitly deferred from Phase 1 sub-project 2 (not started, per its spec's
-non-goals): memory pruning/summarization/decay, a delete-memory UI,
-cross-project memory sharing, an explicit "remember this fact" tool-style
-affordance, and reranking beyond raw vector similarity.
+Multi-Agent Orchestration): the Multi-Agent Orchestration sub-project — no
+spec/plan written yet. Explicitly deferred from Phase 1 sub-project 1 (not
+started): SQL/Python/GitHub tool adapters, and wiring tool calls into the
+LangGraph agent's reasoning loop (belongs to the Multi-Agent Orchestration
+sub-project). Explicitly deferred from Phase 1 sub-project 2 (not started,
+per its spec's non-goals): memory pruning/summarization/decay, a
+delete-memory UI, cross-project memory sharing, an explicit "remember this
+fact" tool-style affordance, and reranking beyond raw vector similarity.
+Explicitly deferred from Phase 1 sub-project 3 (not started, per its spec's
+non-goals): async/background indexing, cross-encoder re-ranking, semantic
+chunking, OCR for scanned PDFs, LLM-based chunk summarization, document
+versioning/re-upload, and cross-project document sharing.
 
 ## Stack (locked — do not swap without updating the spec first)
 

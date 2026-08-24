@@ -6,6 +6,7 @@ from app.config import settings
 def get_user_client(token: str) -> Client:
     client = create_client(settings.supabase_url, settings.supabase_anon_key)
     client.postgrest.auth(token)
+    client.options.headers["Authorization"] = f"Bearer {token}"
     return client
 
 

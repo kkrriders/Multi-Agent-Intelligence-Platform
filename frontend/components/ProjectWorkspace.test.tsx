@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('./ChatPanel', () => ({ default: () => <div>chat-panel</div> }))
 vi.mock('./ToolManagerPanel', () => ({ default: () => <div>tool-panel</div> }))
 vi.mock('./MemoryExplorerPanel', () => ({ default: () => <div>memory-panel</div> }))
+vi.mock('./KnowledgeHubPanel', () => ({ default: () => <div>knowledge-hub-panel</div> }))
 
 describe('ProjectWorkspace', () => {
   it('switches between Chat/Run, Tool Manager, and Memory Explorer panels', async () => {

@@ -2,7 +2,8 @@ import { supabase } from './supabaseClient'
 
 export type Project = { id: string; name: string; created_at: string }
 export type RunEvent = { id: string; step_name: string; payload: Record<string, unknown>; created_at: string }
-export type Run = { id: string; status: string; output: string | null; events: RunEvent[] }
+export type Citation = { index: number; document_id: string; filename: string; content: string }
+export type Run = { id: string; status: string; output: string | null; events: RunEvent[]; citations?: Citation[] }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!
 
@@ -76,6 +77,43 @@ export async function searchMemories(projectId: string, q: string): Promise<Memo
   })
   if (!res.ok) throw new Error('Failed to search memories')
   return res.json()
+}
+
+export type Document = {
+  id: string
+  project_id: string
+  filename: string
+  mime_type: string
+  storage_path: string
+  status: string
+  error: string | null
+  created_at: string
+}
+
+export async function uploadDocument(projectId: string, file: File): Promise<Document> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${API_URL}/projects/${projectId}/documents`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: formData,
+  })
+  if (!res.ok) throw new Error('Failed to upload document')
+  return res.json()
+}
+
+export async function listDocuments(projectId: string): Promise<Document[]> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/documents`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to list documents')
+  return res.json()
+}
+
+export async function deleteDocument(projectId: string, documentId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/documents/${documentId}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to delete document')
 }
 
 export type Tool = {
