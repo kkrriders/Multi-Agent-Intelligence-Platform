@@ -6,29 +6,13 @@ import ChatPanel from './ChatPanel'
 import ToolManagerPanel from './ToolManagerPanel'
 import MemoryExplorerPanel from './MemoryExplorerPanel'
 import KnowledgeHubPanel from './KnowledgeHubPanel'
+import GuardrailsPanel from './GuardrailsPanel'
+import ObservabilityPanel from './ObservabilityPanel'
+import PromptManagerPanel from './PromptManagerPanel'
+import EvaluationPanel from './EvaluationPanel'
 import EmptyStatePanel from './EmptyStatePanel'
 
 const EMPTY_STATES: Record<string, { title: string; phase: number; description: string }> = {
-  'prompt-manager': {
-    title: 'Prompt Manager',
-    phase: 2,
-    description: 'Template library with variables, version history, and test-run.',
-  },
-  guardrails: {
-    title: 'Guardrails',
-    phase: 2,
-    description: 'Policies, validation rules, violations log.',
-  },
-  evaluation: {
-    title: 'Evaluation',
-    phase: 2,
-    description: 'Accuracy, hallucination rate, confidence, benchmark results.',
-  },
-  observability: {
-    title: 'Observability',
-    phase: 2,
-    description: 'Trace viewer, retrieval path, tool calls, timings.',
-  },
   'cost-analytics': {
     title: 'Cost Analytics',
     phase: 3,
@@ -76,6 +60,30 @@ export default function ProjectWorkspace({ projectId }: { projectId: string }) {
           <>
             <h1 className="font-heading text-2xl font-bold uppercase mb-6">Memory Explorer</h1>
             <MemoryExplorerPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'guardrails' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Guardrails</h1>
+            <GuardrailsPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'observability' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Observability</h1>
+            <ObservabilityPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'prompt-manager' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Prompt Manager</h1>
+            <PromptManagerPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'evaluation' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Evaluation</h1>
+            <EvaluationPanel projectId={projectId} />
           </>
         )}
         {emptyState && <EmptyStatePanel {...emptyState} />}

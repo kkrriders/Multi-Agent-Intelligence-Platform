@@ -50,6 +50,48 @@ describe('ToolManagerPanel', () => {
     await waitFor(() => expect(screen.getByText(/^\d+ms$/)).toBeInTheDocument())
   })
 
+  it('sends parsed parameters JSON schema in the tool config', async () => {
+    const { default: ToolManagerPanel } = await import('./ToolManagerPanel')
+    render(<ToolManagerPanel projectId="project-1" />)
+
+    await waitFor(() => expect(listTools).toHaveBeenCalledWith('project-1'))
+
+    fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Weather' } })
+    fireEvent.change(screen.getByLabelText(/^url$/i), { target: { value: 'https://api.example.com/weather' } })
+    fireEvent.change(screen.getByLabelText(/parameters \(json schema\)/i), {
+      target: { value: '{"type":"object","properties":{"city":{"type":"string"}}}' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /register tool/i }))
+
+    await waitFor(() =>
+      expect(createTool).toHaveBeenCalledWith('project-1', {
+        name: 'Weather',
+        type: 'rest',
+        config: {
+          url: 'https://api.example.com/weather',
+          method: 'GET',
+          parameters: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      })
+    )
+  })
+
+  it('shows an error and does not submit when parameters JSON is invalid', async () => {
+    createTool.mockClear()
+    const { default: ToolManagerPanel } = await import('./ToolManagerPanel')
+    render(<ToolManagerPanel projectId="project-1" />)
+
+    await waitFor(() => expect(listTools).toHaveBeenCalledWith('project-1'))
+
+    fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Weather' } })
+    fireEvent.change(screen.getByLabelText(/^url$/i), { target: { value: 'https://api.example.com/weather' } })
+    fireEvent.change(screen.getByLabelText(/parameters \(json schema\)/i), { target: { value: '{not json' } })
+    fireEvent.click(screen.getByRole('button', { name: /register tool/i }))
+
+    await waitFor(() => expect(screen.getByText(/parameters must be valid json/i)).toBeInTheDocument())
+    expect(createTool).not.toHaveBeenCalled()
+  })
+
   it('shows permissions when a tool has any', async () => {
     listTools.mockResolvedValueOnce([
       {

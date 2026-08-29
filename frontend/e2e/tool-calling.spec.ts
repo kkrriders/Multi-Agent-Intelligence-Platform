@@ -17,7 +17,10 @@ test('register a tool, invoke it, and see the result', async ({ page }) => {
   await page.getByRole('button', { name: /tool manager/i }).click()
 
   await page.getByLabel(/^name$/i).fill('Public Echo')
-  await page.getByLabel(/^url$/i).fill('https://httpbin.org/get')
+  // example.com: IANA-run, effectively never down. httpbin.org (the old target)
+  // 503'd/timed out and made this spec flaky. The test only checks the invoke
+  // returns 200, so any stable external endpoint works.
+  await page.getByLabel(/^url$/i).fill('https://example.com')
   await page.getByRole('button', { name: /register tool/i }).click()
 
   await expect(page.getByText('Public Echo')).toBeVisible()

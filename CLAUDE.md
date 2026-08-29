@@ -13,32 +13,68 @@ This CLAUDE.md only covers execution rules; it does not restate the spec.
 
 ## Status
 
-Phase 0 (walking skeleton), Phase 1 sub-project 1 (tool calling + "Signal &
-Trace" design system, per
-`docs/superpowers/specs/2026-08-09-phase1-tool-calling-and-design-system.md`),
-Phase 1 sub-project 2 (memory, per
-`docs/superpowers/specs/2026-08-11-phase1-memory-design.md` and
-`docs/superpowers/plans/2026-08-11-phase1-memory.md`), and Phase 1
-sub-project 3 (RAG, per
-`docs/superpowers/specs/2026-08-22-phase1-rag-design.md` and
-`docs/superpowers/plans/2026-08-22-phase1-rag.md`) are all implemented and
-verified live as of 2026-08-22. All four migrations (`0001_init.sql`,
-`0002_tools.sql`, `0003_memory.sql`, `0004_rag.sql`) are applied; Supabase
+All four Phase 1 sub-projects are implemented:
+
+- Phase 0 (walking skeleton).
+- Phase 1 sub-project 1 (tool calling + "Signal & Trace" design system, per
+  `docs/superpowers/specs/2026-08-09-phase1-tool-calling-and-design-system.md`).
+- Phase 1 sub-project 2 (memory, per
+  `docs/superpowers/specs/2026-08-11-phase1-memory-design.md` and
+  `docs/superpowers/plans/2026-08-11-phase1-memory.md`).
+- Phase 1 sub-project 3 (RAG, per
+  `docs/superpowers/specs/2026-08-22-phase1-rag-design.md` and
+  `docs/superpowers/plans/2026-08-22-phase1-rag.md`).
+- Phase 1 sub-project 4 (multi-agent orchestration, per
+  `docs/superpowers/specs/2026-08-29-phase2-multi-agent-orchestration-design.md`
+  and `docs/superpowers/plans/2026-08-29-phase2-multi-agent-orchestration.md`) —
+  implemented 2026-08-29. The single-node graph is now an `app/graph/`
+  package: an `orchestrator` node (Groq JSON-mode routing, clamped in
+  `routing.py` to `MAX_TURNS=4` / `MAX_TOOL_CALLS=3` / `MAX_RESEARCHER_RERUNS=1`)
+  loops over `researcher` / `tool_runner` / `executor` / `verifier` workers.
+  `tool_runner` uses Groq-native tool calling over the project's **GET-only**
+  REST tools (`config.method != GET` → excluded from the loop; the model never
+  sets the URL or headers). `runs.py` streams the graph and flushes
+  `run_events` per node; setup events (`memory_recalled`, `retrieval_performed`)
+  carry `turn: 0`. Tool config gained an optional `parameters` (JSON Schema)
+  field — no migration, it lives inside the existing `config` JSONB. Frontend
+  `Timeline` groups events into per-turn blocks with a summary line.
+  Completes the master spec's Phase 1 exit criterion.
+
+All seven migrations (`0001_init.sql`..`0007_eval.sql`) are applied. Supabase
 Auth email confirmation is disabled for test signups. Qdrant is wired into
 `docker-compose.yml` as a `qdrant` service (self-hosted, port 6333). A
 private Supabase Storage bucket, `documents`, holds uploaded RAG source
 files, with RLS on `storage.objects` scoping access by project ownership.
+Phase 1 sub-project 4 and Phase 2 sub-project 2 (Observability) need no new
+migration; Phase 2 adds `0005`/`0006`/`0007` and no new infra.
 
-Verified against the real stack (real Supabase + Groq + Qdrant, no mocking):
-46/47 backend pytest cases pass — the one failure
-(`test_tools.py::test_create_list_and_invoke_tool`) is external `httpbin.org`
-flakiness (503/timeout from httpbin itself), unrelated to any code here. All
-30 frontend vitest cases pass. Playwright E2E: `golden-path.spec.ts`,
-`memory-recall.spec.ts` (×2), and `rag.spec.ts` all pass when run serially;
-`tool-calling.spec.ts` fails for the same unrelated httpbin reason. Running
-the full E2E suite in parallel can also transiently fail unrelated specs
-under concurrent-signup load against the single Supabase project — this is
-resource contention in this environment, not a product bug.
+**Full-stack verification (2026-08-29, `docker compose up` — real Supabase +
+Groq + Qdrant, no mocking): backend `pytest` 116 passed / 0 failed;** every
+gated integration test green, including the multi-agent graph
+(orchestrator → workers → verifier, `turn ≤ 4`), guardrail block + PII-mask
+on completed runs, the Observability run-list, template-backed runs with a
+`prompt_used` event, and a full evaluation run (answer + judge + persisted
+metrics). Frontend: 54 vitest pass, `tsc --noEmit` + `ruff` clean.
+**Playwright E2E: all 9 specs pass** — `golden-path`, `tool-calling`, `rag`,
+`memory-recall` (×2), `guardrails`, `observability`, `prompt-manager`,
+`evaluation` — run individually or in batches of ≤4. Running all 9
+back-to-back still transiently fails a *different* spec each time under
+concurrent-signup load on the single Supabase project (project link / auth
+race) — resource contention in this environment, not a product bug;
+`playwright.config.ts` pins `workers: 1`. Several E2E specs now assert with
+`.first()` because the grouped `Timeline` / `TraceView` render event
+payloads as JSON `<pre>` blocks that also contain the run's input/output
+text. The tool-calling integration test and E2E hit `https://example.com`
+(IANA-run) rather than the old flaky `https://httpbin.org/get`.
+
+A real Guardrails bug was found and fixed during this verification: the Groq
+injection classifier (`_CLASSIFIER_SYSTEM` in `app/guardrails/engine.py`)
+over-flagged benign formatting instructions ("reply with just the word",
+"reply 'ok'") as prompt injection → HTTP 422 → three pre-existing
+memory/RAG-recall integration tests started failing. Fixed by tightening the
+classifier prompt to exclude terse-answer / output-format / task-role
+requests; real override/exfiltration/jailbreak attacks are still blocked
+(re-verified live). The classifier stays fail-open.
 
 Three pre-existing bugs, all outside their discovering sub-project's
 original scope, were found and fixed because each sub-project's new
@@ -72,19 +108,91 @@ overwriting the just-uploaded document with the stale empty list. Fixed
 with a `hasLocalUpdate` ref guard, the same pattern `ChatPanel` already uses
 (`skipNextFetch`) for an analogous race.
 
-Next up per the master spec's sequencing (Tool Calling → Memory → RAG →
-Multi-Agent Orchestration): the Multi-Agent Orchestration sub-project — no
-spec/plan written yet. Explicitly deferred from Phase 1 sub-project 1 (not
-started): SQL/Python/GitHub tool adapters, and wiring tool calls into the
-LangGraph agent's reasoning loop (belongs to the Multi-Agent Orchestration
-sub-project). Explicitly deferred from Phase 1 sub-project 2 (not started,
-per its spec's non-goals): memory pruning/summarization/decay, a
-delete-memory UI, cross-project memory sharing, an explicit "remember this
-fact" tool-style affordance, and reranking beyond raw vector similarity.
-Explicitly deferred from Phase 1 sub-project 3 (not started, per its spec's
-non-goals): async/background indexing, cross-encoder re-ranking, semantic
-chunking, OCR for scanned PDFs, LLM-based chunk summarization, document
-versioning/re-upload, and cross-project document sharing.
+**Phase 2 — Trust & Quality** — all four sub-projects implemented 2026-08-29
+(specs + plans dated 2026-08-29 in `docs/superpowers/`):
+
+1. **Guardrails** — `app/guardrails/` (heuristic injection patterns + one
+   Groq JSON classifier when heuristics are clean; regex PII masking).
+   `runs.py` pre-hook blocks (HTTP 422, `run.status="blocked"`, no graph
+   spend) on injection or an `input_constraint` policy; post-hook masks PII
+   in the answer **before** it reaches `runs.output`, the timeline, and
+   `upsert_memory`. `guardrail_policies` + `guardrail_events` tables
+   (`0005_guardrails.sql`). Injection + PII always on; GET-only tools in the
+   loop; classifier is fail-open. `GuardrailsPanel` + a blocked notice in
+   `ChatPanel` + pre/post rows in `Timeline`.
+2. **Observability** — `GET /projects/{id}/runs` (all runs across a
+   project's conversations); `retrieval_performed` payload gains
+   `sources: [{filename, score}]`. `ObservabilityPanel` = run browser +
+   `TraceView` (events + guardrails merged by time, **client-derived**
+   per-step durations from `created_at` deltas, expandable payloads, error
+   row). No migration, no `duration_ms`.
+3. **Prompt Management** — `prompt_templates` + `prompt_template_versions`
+   (append-only; `0006_prompts.sql`). `{{variable}}` inferred from the body
+   (`app/prompts.py`). `RunCreate` takes `input` **xor**
+   `{template_id, variables}`; `create_run` renders the latest version →
+   `resolved_input` (used everywhere downstream) and logs a `prompt_used`
+   event. `PromptManagerPanel` (library, editor = new version, history,
+   test) + a template picker in `ChatPanel`.
+4. **Evaluation** — golden datasets (`eval_datasets` / `eval_items` /
+   `eval_runs` / `eval_results`; `0007_eval.sql`). `POST
+   /eval-datasets/{id}/run` — per item one bare `generate()` answer + one
+   Groq JSON judge call `{score, hallucinated, reason}` (`app/evals.py`);
+   `aggregate()` → `accuracy` (fraction score≥0.7) / `hallucination_rate` /
+   `mean_score`. Synchronous, `MAX_ITEMS=20`, judge fail-open. Not wired
+   into `create_run` — an explicit offline harness. `EvaluationPanel`
+   (dataset row editor, run, results table, history).
+
+**Phase 2 verification status:** backend unit/API + pure-logic tests pass
+(93 passed / 23 skipped with a real `GROQ_API_KEY`; skips need real
+Supabase), `ruff` clean on all new code (one pre-existing `F841` in
+`app/api/documents.py:26` is unrelated). Frontend: 54 vitest pass,
+`tsc --noEmit` clean. Verified live against real Supabase + Groq:
+`0005_guardrails.sql` applied and its API roundtrip + injection-block path
+pass; the Groq injection classifier catches subtle attacks; PII masking
+works; the eval judge scores correct answers 1.0 and a deliberately wrong
+answer 0.0/hallucinated. **Pending:** `0006_prompts.sql` and
+`0007_eval.sql` are **not yet applied** to Supabase (same manual step as
+`0005`); Qdrant/Docker is down in this environment so the completed-run
+post-hook path, the Prompt/Eval integration tests, and all Phase 2
+Playwright specs (`guardrails`, `observability`, `prompt-manager`,
+`evaluation`) + acceptance runs still need a full `docker compose up` stack.
+
+Next up: master-spec **Phase 3 — Production Hardening** (Token Optimization
+incl. the first second-model/provider tier + response caching + history
+compression, Deployment, Cost Analytics, rate limiting/alerting).
+
+Explicitly deferred, per each sub-project's spec non-goals (none started):
+- **Sub-project 1 (tools):** SQL/Python/GitHub tool adapters.
+- **Sub-project 2 (memory):** pruning/summarization/decay, a delete-memory
+  UI, cross-project memory sharing, an explicit "remember this fact"
+  affordance, reranking beyond raw vector similarity.
+- **Sub-project 3 (RAG):** async/background indexing, cross-encoder
+  re-ranking, semantic chunking, OCR for scanned PDFs, LLM-based chunk
+  summarization, document versioning/re-upload, cross-project document
+  sharing.
+- **Sub-project 4 (multi-agent orchestration):** background/async run
+  execution and a streaming (live) timeline; the `tool_permissions` table /
+  per-tool `agent_callable` opt-in (the loop uses a blunt GET-only guard
+  instead); verifier self-correction (bounce back to executor); free-form
+  orchestrator routing (drop the fixed skeleton, raise `MAX_TURNS`);
+  a second Groq model tier for cheap routing/verify calls (that is
+  master-spec Phase 3); prompt-injection *detection* on RAG-sourced context
+  (delivered by Phase 2 Guardrails).
+- **Phase 2 sub-project 1 (Guardrails):** ML/NER-based PII, a policy rule
+  DSL, output JSON-Schema enforcement, per-tool/per-agent policies,
+  streaming redaction, rate limiting (Phase 3).
+- **Phase 2 sub-project 2 (Observability):** explicit per-span
+  `duration_ms` + its migration, OpenTelemetry/OTLP export, metrics
+  rollups (p50/p95/error-rate), trace retention/TTL, run-list pagination,
+  a live trace tail, log search.
+- **Phase 2 sub-project 3 (Prompt Management):** declared variable metadata
+  (defaults/required/types), per-run version pinning, rollback/diff UI,
+  template delete/tags/search, templating logic (conditionals/loops),
+  template-aware eval datasets.
+- **Phase 2 sub-project 4 (Evaluation):** graph-backed or RAG/memory-aware
+  eval, template datasets, dataset/item mutation after creation,
+  import/export, scheduled/CI-triggered runs, run-to-run regression diff,
+  latency/cost columns, a second judge model.
 
 ## Stack (locked — do not swap without updating the spec first)
 

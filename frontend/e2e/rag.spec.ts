@@ -27,6 +27,7 @@ test('uploads a document and cites it in a chat response', async ({ page }) => {
   await page.getByLabel(/message/i).fill('What is the launch codeword? Reply with just the word.')
   await page.getByRole('button', { name: /send/i }).click()
 
-  await expect(page.getByText(/bluebird/i)).toBeVisible({ timeout: 15000 })
-  await expect(page.getByText(/launch-notes\.txt/i)).toBeVisible()
+  // multi-agent run (orchestrator + workers + verifier) is slower than the old single node
+  await expect(page.getByText(/bluebird/i).first()).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText(/launch-notes\.txt/i).first()).toBeVisible()
 })

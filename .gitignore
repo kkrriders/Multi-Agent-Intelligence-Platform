@@ -13,3 +13,5 @@ node_modules/
 # withheld from the repo for now
 /DESIGN.md
 /PRODUCT.md
+/docs/superpowers/specs/
+/docs/superpowers/plans/

@@ -16,11 +16,11 @@ test('recalls the first message when asked in the same conversation', async ({ p
 
   await page.getByLabel(/message/i).fill("My favorite color is teal. Reply with just 'ok'.")
   await page.getByRole('button', { name: /send/i }).click()
-  await expect(page.getByText(/ok/i)).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText(/ok/i).first()).toBeVisible({ timeout: 15000 })
 
   await page.getByLabel(/message/i).fill('What is my favorite color? Reply with just the color.')
   await page.getByRole('button', { name: /send/i }).click()
-  await expect(page.getByText(/teal/i)).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText(/teal/i).first()).toBeVisible({ timeout: 15000 })
 })
 
 test('semantic search finds an earlier turn from a different conversation', async ({ page }) => {
@@ -47,5 +47,5 @@ test('semantic search finds an earlier turn from a different conversation', asyn
   await page.getByLabel(/search memory/i).fill('rocket launch codeword')
   await page.getByRole('button', { name: /search/i }).click()
 
-  await expect(page.getByText(/Bluebird/i)).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText(/Bluebird/i).first()).toBeVisible({ timeout: 15000 })
 })

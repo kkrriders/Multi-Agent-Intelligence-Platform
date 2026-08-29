@@ -8,7 +8,9 @@ import {
   createRun,
   listConversationRuns,
   listConversations,
+  listPromptTemplates,
   type Conversation,
+  type PromptTemplate,
   type Run,
 } from '@/lib/api'
 import Timeline from './Timeline'
@@ -18,9 +20,19 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Run[]>([])
   const [message, setMessage] = useState('')
+  const [templates, setTemplates] = useState<PromptTemplate[]>([])
+  const [templateId, setTemplateId] = useState('')
+  const [vars, setVars] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<string | null>(null)
   const skipNextFetch = useRef(false)
+
+  const activeTemplate = templates.find((t) => t.id === templateId) ?? null
+
+  useEffect(() => {
+    listPromptTemplates(projectId).then(setTemplates).catch(() => setTemplates([]))
+  }, [projectId])
 
   useEffect(() => {
     listConversations(projectId)
@@ -59,9 +71,10 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
   }
 
   async function handleSend() {
-    if (!message.trim()) return
+    if (!activeTemplate && !message.trim()) return
     setLoading(true)
     setError(null)
+    setBlocked(null)
     try {
       let activeId = conversationId
       if (!activeId) {
@@ -71,11 +84,19 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
         setConversationId(conversation.id)
         activeId = conversation.id
       }
-      const result = await createRun(activeId, message)
+      const result = activeTemplate
+        ? await createRun(activeId, { template_id: activeTemplate.id, variables: vars })
+        : await createRun(activeId, message)
       setRuns((prev) => [...prev, result])
       setMessage('')
+      setVars({})
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message')
+      const msg = err instanceof Error ? err.message : 'Failed to send message'
+      if (msg.startsWith('blocked by guardrail')) {
+        setBlocked(msg)
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -103,14 +124,59 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
         </Button>
       </div>
 
-      <div className="flex gap-2">
-        <label htmlFor="chat-message" className="sr-only">Message</label>
-        <Input id="chat-message" value={message} onChange={(e) => setMessage(e.target.value)} />
+      {templates.length > 0 && (
+        <div className="flex items-center gap-2">
+          <label htmlFor="template-select" className="text-xs tracking-wide text-muted-foreground uppercase">
+            Template
+          </label>
+          <select
+            id="template-select"
+            aria-label="Template"
+            value={templateId}
+            onChange={(e) => {
+              setTemplateId(e.target.value)
+              setVars({})
+            }}
+            className="border border-border bg-card px-2 py-1 text-sm"
+          >
+            <option value="">(free text)</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-end gap-2">
+        {activeTemplate ? (
+          activeTemplate.variables.map((v) => (
+            <label key={v} className="flex flex-col gap-1 text-xs">
+              <span className="font-mono">{v}</span>
+              <Input
+                aria-label={`var ${v}`}
+                value={vars[v] ?? ''}
+                onChange={(e) => setVars((prev) => ({ ...prev, [v]: e.target.value }))}
+              />
+            </label>
+          ))
+        ) : (
+          <>
+            <label htmlFor="chat-message" className="sr-only">Message</label>
+            <Input id="chat-message" value={message} onChange={(e) => setMessage(e.target.value)} />
+          </>
+        )}
         <Button onClick={handleSend} disabled={loading}>
           {loading ? 'Sending...' : 'Send'}
         </Button>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {blocked && (
+        <p role="status" className="border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+          {blocked}
+        </p>
+      )}
       {runs.length > 0 && (
         <div className="flex flex-col gap-4">
           {runs.map((run) => (
@@ -134,7 +200,7 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
               )}
             </div>
           ))}
-          {latestRun && <Timeline events={latestRun.events} />}
+          {latestRun && <Timeline events={latestRun.events} guardrails={latestRun.guardrails} />}
         </div>
       )}
     </div>

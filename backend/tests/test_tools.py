@@ -32,7 +32,11 @@ def test_create_list_and_invoke_tool(auth_headers):
 
     create_response = client.post(
         f"/projects/{project_id}/tools",
-        json={"name": "Echo", "type": "rest", "config": {"url": "https://httpbin.org/get", "method": "GET"}},
+        # example.com is IANA-run and effectively never down; httpbin.org (the old
+        # target) was a hobby host that 503'd/timed out and made this test flaky.
+        # A real external GET returning 200 still proves the adapter works over the
+        # network end to end, which is all this test asserts.
+        json={"name": "Echo", "type": "rest", "config": {"url": "https://example.com", "method": "GET"}},
         headers=auth_headers,
     )
     assert create_response.status_code == 200

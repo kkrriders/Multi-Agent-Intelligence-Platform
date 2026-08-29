@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ProjectCreate(BaseModel):
@@ -34,7 +34,93 @@ class MemorySearchResult(BaseModel):
 
 
 class RunCreate(BaseModel):
+    input: str | None = None
+    template_id: str | None = None
+    variables: dict = {}
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self):
+        if bool(self.input) == bool(self.template_id):
+            raise ValueError("provide exactly one of 'input' or 'template_id'")
+        return self
+
+
+class PromptTemplateCreate(BaseModel):
+    name: str
+    body: str
+
+
+class PromptTemplateUpdate(BaseModel):
+    body: str
+
+
+class PromptTemplateVersionOut(BaseModel):
+    id: str
+    version: int
+    body: str
+    variables: list[str]
+    created_at: datetime
+
+
+class PromptTemplateOut(BaseModel):
+    id: str
+    name: str
+    version: int
+    body: str
+    variables: list[str]
+    version_count: int
+    created_at: datetime
+
+
+class EvalItemIn(BaseModel):
     input: str
+    expected: str
+
+
+class EvalItemOut(BaseModel):
+    id: str
+    input: str
+    expected: str
+
+
+class EvalDatasetCreate(BaseModel):
+    name: str
+    items: list[EvalItemIn]
+
+
+class EvalRunSummary(BaseModel):
+    id: str
+    dataset_id: str
+    item_count: int
+    accuracy: float
+    hallucination_rate: float
+    mean_score: float
+    created_at: datetime
+
+
+class EvalResultOut(BaseModel):
+    id: str
+    item_id: str
+    output: str
+    score: float
+    hallucinated: bool
+    reason: str
+
+
+class EvalRunOut(EvalRunSummary):
+    results: list[EvalResultOut] = []
+
+
+class EvalDatasetOut(BaseModel):
+    id: str
+    name: str
+    item_count: int
+    latest_run: EvalRunSummary | None = None
+    created_at: datetime
+
+
+class EvalDatasetDetailOut(EvalDatasetOut):
+    items: list[EvalItemOut] = []
 
 
 class RunEventOut(BaseModel):
@@ -51,12 +137,35 @@ class Citation(BaseModel):
     content: str
 
 
+class GuardrailEventOut(BaseModel):
+    id: str
+    phase: str
+    kind: str
+    outcome: str
+    detail: dict
+    created_at: datetime
+
+
+class GuardrailPolicyOut(BaseModel):
+    id: str | None
+    kind: str
+    enabled: bool
+    config: dict
+    created_at: datetime | None = None
+
+
+class GuardrailPolicyUpdate(BaseModel):
+    enabled: bool | None = None
+    config: dict | None = None
+
+
 class RunOut(BaseModel):
     id: str
     status: str
     output: str | None
     events: list[RunEventOut]
     citations: list[Citation] = []
+    guardrails: list[GuardrailEventOut] = []
 
 
 class ToolCreate(BaseModel):

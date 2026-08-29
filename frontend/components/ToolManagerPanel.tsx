@@ -9,6 +9,8 @@ export default function ToolManagerPanel({ projectId }: { projectId: string }) {
   const [tools, setTools] = useState<Tool[]>([])
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [paramsText, setParamsText] = useState('')
+  const [paramsError, setParamsError] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, { status: string; latencyMs: number }>>({})
 
@@ -21,11 +23,24 @@ export default function ToolManagerPanel({ projectId }: { projectId: string }) {
   async function handleRegister() {
     if (!name.trim() || !url.trim()) return
     setError(null)
+
+    const config: Record<string, unknown> = { url, method: 'GET' }
+    if (paramsText.trim()) {
+      try {
+        config.parameters = JSON.parse(paramsText)
+      } catch {
+        setParamsError('Parameters must be valid JSON')
+        return
+      }
+    }
+    setParamsError('')
+
     try {
-      const tool = await createTool(projectId, { name, type: 'rest', config: { url, method: 'GET' } })
+      const tool = await createTool(projectId, { name, type: 'rest', config })
       setTools((prev) => [tool, ...prev])
       setName('')
       setUrl('')
+      setParamsText('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to register tool')
     }
@@ -94,6 +109,21 @@ export default function ToolManagerPanel({ projectId }: { projectId: string }) {
           URL
         </label>
         <Input id="tool-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+        <label
+          htmlFor="tool-params"
+          className="mt-1 text-xs tracking-wide text-muted-foreground uppercase"
+        >
+          Parameters (JSON Schema)
+        </label>
+        <textarea
+          id="tool-params"
+          value={paramsText}
+          onChange={(e) => setParamsText(e.target.value)}
+          placeholder='{"type":"object","properties":{}}'
+          rows={3}
+          className="punch-corner border border-border bg-background p-2 font-mono text-xs"
+        />
+        {paramsError && <p className="text-sm text-destructive">{paramsError}</p>}
         <Button className="mt-2 self-start" onClick={handleRegister}>
           Register tool
         </Button>
