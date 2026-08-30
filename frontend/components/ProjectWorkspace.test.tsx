@@ -9,6 +9,9 @@ vi.mock('./GuardrailsPanel', () => ({ default: () => <div>guardrails-panel</div>
 vi.mock('./ObservabilityPanel', () => ({ default: () => <div>observability-panel</div> }))
 vi.mock('./PromptManagerPanel', () => ({ default: () => <div>prompt-manager-panel</div> }))
 vi.mock('./EvaluationPanel', () => ({ default: () => <div>evaluation-panel</div> }))
+vi.mock('./CostAnalyticsPanel', () => ({ default: () => <div>cost-analytics-panel</div> }))
+vi.mock('./SettingsPanel', () => ({ default: () => <div>settings-panel</div> }))
+vi.mock('./DeploymentPanel', () => ({ default: () => <div>deployment-panel</div> }))
 
 describe('ProjectWorkspace', () => {
   it('switches between Chat/Run, Tool Manager, and Memory Explorer panels', async () => {
@@ -30,11 +33,27 @@ describe('ProjectWorkspace', () => {
     expect(screen.getByText('prompt-manager-panel')).toBeInTheDocument()
   })
 
-  it('shows an empty-state panel for a not-yet-built tab', async () => {
+  it('renders the Cost Analytics panel for its tab', async () => {
     const { default: ProjectWorkspace } = await import('./ProjectWorkspace')
     render(<ProjectWorkspace projectId="p1" />)
 
     fireEvent.click(screen.getByRole('button', { name: /cost analytics/i }))
-    expect(screen.getByText(/token usage/i)).toBeInTheDocument()
+    expect(screen.getByText('cost-analytics-panel')).toBeInTheDocument()
+  })
+
+  it('renders the Settings panel for its tab', async () => {
+    const { default: ProjectWorkspace } = await import('./ProjectWorkspace')
+    render(<ProjectWorkspace projectId="p1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+    expect(screen.getByText('settings-panel')).toBeInTheDocument()
+  })
+
+  it('renders the Deployment panel for its tab', async () => {
+    const { default: ProjectWorkspace } = await import('./ProjectWorkspace')
+    render(<ProjectWorkspace projectId="p1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /deployment/i }))
+    expect(screen.getByText('deployment-panel')).toBeInTheDocument()
   })
 })

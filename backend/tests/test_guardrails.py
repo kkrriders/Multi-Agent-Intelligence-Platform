@@ -93,6 +93,31 @@ def test_check_input_classifier_unparseable_is_fail_open(monkeypatch):
     assert v.detail.get("note") == "classifier_unparseable"
 
 
+def test_check_input_classifier_call_error_is_fail_open(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("groq 400 json_validate_failed")
+
+    monkeypatch.setattr(engine, "generate", boom)
+    v = check_input("a perfectly normal question", [], {})
+    assert v.ok is True
+    assert v.detail.get("note") == "classifier_unparseable"
+
+
+def test_check_input_classifier_uses_full_model(monkeypatch):
+    # The injection classifier is security-relevant and uses JSON mode, where
+    # the cheap model is unreliable (returns bare text -> Groq 400). Keep it
+    # on MODEL.
+    from app.llm import MODEL
+
+    calls = []
+    monkeypatch.setattr(
+        engine, "generate",
+        lambda *a, **k: calls.append(k) or '{"injection": false, "reason": ""}',
+    )
+    engine.check_input("a perfectly normal question", [], {})
+    assert calls[0].get("model", MODEL) == MODEL
+
+
 def test_check_input_clean_passes(monkeypatch):
     monkeypatch.setattr(engine, "generate", lambda *a, **k: '{"injection": false, "reason": ""}')
     v = check_input("what time is it in Tokyo?", [], {})

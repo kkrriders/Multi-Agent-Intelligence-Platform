@@ -10,29 +10,12 @@ import GuardrailsPanel from './GuardrailsPanel'
 import ObservabilityPanel from './ObservabilityPanel'
 import PromptManagerPanel from './PromptManagerPanel'
 import EvaluationPanel from './EvaluationPanel'
-import EmptyStatePanel from './EmptyStatePanel'
-
-const EMPTY_STATES: Record<string, { title: string; phase: number; description: string }> = {
-  'cost-analytics': {
-    title: 'Cost Analytics',
-    phase: 3,
-    description: 'Token usage, model costs, cache hits/savings.',
-  },
-  deployment: {
-    title: 'Deployment',
-    phase: 3,
-    description: 'Docker/cloud config, environments, deployment history.',
-  },
-  settings: {
-    title: 'Settings',
-    phase: 3,
-    description: 'Project and account configuration.',
-  },
-}
+import CostAnalyticsPanel from './CostAnalyticsPanel'
+import SettingsPanel from './SettingsPanel'
+import DeploymentPanel from './DeploymentPanel'
 
 export default function ProjectWorkspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<WorkspaceTab>('chat')
-  const emptyState = EMPTY_STATES[tab]
 
   return (
     <div className="flex flex-col gap-8 sm:flex-row">
@@ -86,7 +69,24 @@ export default function ProjectWorkspace({ projectId }: { projectId: string }) {
             <EvaluationPanel projectId={projectId} />
           </>
         )}
-        {emptyState && <EmptyStatePanel {...emptyState} />}
+        {tab === 'cost-analytics' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Cost Analytics</h1>
+            <CostAnalyticsPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'settings' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Settings</h1>
+            <SettingsPanel projectId={projectId} />
+          </>
+        )}
+        {tab === 'deployment' && (
+          <>
+            <h1 className="font-heading text-2xl font-bold uppercase mb-6">Deployment</h1>
+            <DeploymentPanel />
+          </>
+        )}
       </div>
     </div>
   )

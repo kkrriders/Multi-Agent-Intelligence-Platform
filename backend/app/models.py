@@ -159,6 +159,14 @@ class GuardrailPolicyUpdate(BaseModel):
     config: dict | None = None
 
 
+class RunLlmCallOut(BaseModel):
+    node: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    cost_usd: float
+
+
 class RunOut(BaseModel):
     id: str
     status: str
@@ -166,6 +174,93 @@ class RunOut(BaseModel):
     events: list[RunEventOut]
     citations: list[Citation] = []
     guardrails: list[GuardrailEventOut] = []
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cost_usd: float | None = None
+    cache_hit: bool = False
+    llm_calls: list[RunLlmCallOut] = []
+
+
+class AlertRuleCreate(BaseModel):
+    kind: str
+    threshold: float
+    window_n: int = 20
+    webhook_url: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.kind not in ("error_rate", "daily_spend", "p95_latency"):
+            raise ValueError("kind must be one of error_rate, daily_spend, p95_latency")
+        if self.threshold < 0:
+            raise ValueError("threshold must be >= 0")
+        if self.kind == "error_rate" and self.threshold > 1:
+            raise ValueError("error_rate threshold must be <= 1")
+        if self.window_n < 1:
+            raise ValueError("window_n must be >= 1")
+        return self
+
+
+class AlertRuleUpdate(BaseModel):
+    threshold: float | None = None
+    window_n: int | None = None
+    webhook_url: str | None = None
+    enabled: bool | None = None
+
+
+class AlertRuleOut(BaseModel):
+    id: str
+    kind: str
+    threshold: float
+    window_n: int
+    webhook_url: str | None
+    enabled: bool
+    created_at: datetime
+
+
+class AlertEventOut(BaseModel):
+    id: str
+    kind: str
+    observed: float
+    threshold: float
+    detail: dict
+    created_at: datetime
+
+
+class LimitsOut(BaseModel):
+    run_rate_limit_per_min: int
+    deploy_api_enabled: bool = False
+
+
+class DeployTargetCreate(BaseModel):
+    name: str
+    image_repo: str
+    registry: str = "ghcr.io"
+    config: dict = {}
+
+
+class DeployTargetOut(BaseModel):
+    id: str
+    name: str
+    registry: str
+    image_repo: str
+    config: dict
+    created_at: datetime
+
+
+class DeploymentCreate(BaseModel):
+    target_id: str
+    components: list[str] = ["backend", "frontend"]
+
+
+class DeploymentOut(BaseModel):
+    id: str
+    target_id: str | None
+    image_tag: str
+    git_sha: str | None
+    components: list[str]
+    status: str
+    log: str
+    created_at: datetime
 
 
 class ToolCreate(BaseModel):

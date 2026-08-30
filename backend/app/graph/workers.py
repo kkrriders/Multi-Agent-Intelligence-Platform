@@ -2,7 +2,7 @@ import json
 
 from app.graph.routing import MAX_TOOL_CALLS
 from app.graph.tool_schemas import build_tool_schemas, execute_tool_call
-from app.llm import generate
+from app.llm import MODEL_CHEAP, generate, set_node
 
 CONTEXT_CHARS = 500
 TOOL_RESULT_CHARS = 500
@@ -22,6 +22,7 @@ def researcher_node(state):
     if state["retrieved_chunks"]:
         parts.append("Documents:\n" + _sources_block(state["retrieved_chunks"]))
     context = "\n\n".join(parts) or "(no external context available)"
+    set_node("researcher")
     brief = generate(
         [
             {
@@ -29,7 +30,8 @@ def researcher_node(state):
                 "content": "Summarize only the context relevant to the user's question in 3-5 sentences. If nothing is relevant, say exactly: no relevant context.",
             },
             {"role": "user", "content": f"Question: {state['input']}\n\n{context}"},
-        ]
+        ],
+        model=MODEL_CHEAP,
     )
     event = {
         "step_name": "worker_researcher",
@@ -50,6 +52,7 @@ def researcher_node(state):
 def make_tool_runner(tool_configs: dict):
     def tool_runner_node(state):
         schemas = build_tool_schemas(state["tool_specs"])
+        set_node("tool_runner")
         message = generate(
             [
                 {
@@ -106,6 +109,7 @@ def executor_node(state):
     ]
     messages += state["history"]
     messages.append({"role": "user", "content": state["input"] + tail})
+    set_node("executor")
     answer = generate(messages)
     return {
         **state,
@@ -125,20 +129,22 @@ def verifier_node(state):
     context = state["scratch"].get("researcher", "")
     for r in state["scratch"].get("tools", []):
         context += "\n" + str(r.get("body", r.get("error", "")))
-    raw = generate(
-        [
-            {"role": "system", "content": _VERIFIER_SYSTEM},
-            {
-                "role": "user",
-                "content": f"QUESTION: {state['input']}\n\nCONTEXT: {context[:VERIFIER_CONTEXT_CHARS]}\n\nANSWER: {state['output']}",
-            },
-        ],
-        response_format={"type": "json_object"},
-    )
+    set_node("verifier")
     try:
+        raw = generate(
+            [
+                {"role": "system", "content": _VERIFIER_SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"QUESTION: {state['input']}\n\nCONTEXT: {context[:VERIFIER_CONTEXT_CHARS]}\n\nANSWER: {state['output']}",
+                },
+            ],
+            response_format={"type": "json_object"},
+            model=MODEL_CHEAP,
+        )
         parsed = json.loads(raw)
         verdict = {"supported": bool(parsed.get("supported")), "note": str(parsed.get("note", ""))}
-    except (json.JSONDecodeError, AttributeError, TypeError):
+    except Exception:  # noqa: BLE001 - any verifier-call failure passes the answer through unflagged
         verdict = {"supported": True, "note": "verifier response unparseable; passing through"}
     output = state["output"]
     if not verdict["supported"]:

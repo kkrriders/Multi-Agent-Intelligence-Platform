@@ -6,3 +6,8 @@ coverage
 !.env.local.example
 npm-debug.log*
 .git
+e2e
+playwright-report
+test-results
+**/*.test.tsx
+**/*.test.ts

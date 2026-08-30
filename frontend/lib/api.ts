@@ -18,6 +18,13 @@ export type GuardrailPolicy = {
   config: Record<string, unknown>
   created_at: string | null
 }
+export type RunLlmCall = {
+  node: string
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  cost_usd: number
+}
 export type Run = {
   id: string
   status: string
@@ -25,6 +32,41 @@ export type Run = {
   events: RunEvent[]
   citations?: Citation[]
   guardrails?: GuardrailEvent[]
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+  cost_usd?: number | null
+  cache_hit?: boolean
+  llm_calls?: RunLlmCall[]
+}
+
+export type ProjectCost = {
+  totals: {
+    run_count: number
+    cached_run_count: number
+    prompt_tokens: number
+    completion_tokens: number
+    cost_usd: number
+    runs_missing_cost: number
+    estimated_cache_savings_usd: number
+  }
+  by_model: {
+    model: string
+    calls: number
+    prompt_tokens: number
+    completion_tokens: number
+    cost_usd: number
+  }[]
+  daily: { date: string; run_count: number; cost_usd: number; cached_run_count: number }[]
+  recent_runs: {
+    id: string
+    created_at: string
+    status: string
+    cache_hit: boolean
+    prompt_tokens: number
+    completion_tokens: number
+    cost_usd: number
+    models: string[]
+  }[]
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!
@@ -95,6 +137,154 @@ export async function listConversationRuns(conversationId: string): Promise<Run[
 export async function listProjectRuns(projectId: string): Promise<Run[]> {
   const res = await fetch(`${API_URL}/projects/${projectId}/runs`, { headers: await authHeaders() })
   if (!res.ok) throw new Error('Failed to list project runs')
+  return res.json()
+}
+
+export async function getProjectCost(projectId: string): Promise<ProjectCost> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/cost`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load cost analytics')
+  return res.json()
+}
+
+export type AlertKind = 'error_rate' | 'daily_spend' | 'p95_latency'
+export type AlertRule = {
+  id: string
+  kind: AlertKind
+  threshold: number
+  window_n: number
+  webhook_url: string | null
+  enabled: boolean
+  created_at: string
+}
+export type AlertEvent = {
+  id: string
+  kind: string
+  observed: number
+  threshold: number
+  detail: Record<string, unknown>
+  created_at: string
+}
+
+export async function getLimits(): Promise<{
+  run_rate_limit_per_min: number
+  deploy_api_enabled: boolean
+}> {
+  const res = await fetch(`${API_URL}/config/limits`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load limits')
+  return res.json()
+}
+
+export type DeployTarget = {
+  id: string
+  name: string
+  registry: string
+  image_repo: string
+  config: Record<string, string>
+  created_at: string
+}
+export type Deployment = {
+  id: string
+  target_id: string | null
+  image_tag: string
+  git_sha: string | null
+  components: string[]
+  status: 'running' | 'succeeded' | 'failed'
+  log: string
+  created_at: string
+}
+
+export async function listDeployTargets(): Promise<DeployTarget[]> {
+  const res = await fetch(`${API_URL}/deploy-targets`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load deploy targets')
+  return res.json()
+}
+
+export async function createDeployTarget(t: {
+  name: string
+  image_repo: string
+  registry?: string
+  config?: Record<string, string>
+}): Promise<DeployTarget> {
+  const res = await fetch(`${API_URL}/deploy-targets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(t),
+  })
+  if (!res.ok) throw new Error('Failed to create deploy target')
+  return res.json()
+}
+
+export async function deleteDeployTarget(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/deploy-targets/${id}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to delete deploy target')
+}
+
+export async function listDeployments(): Promise<Deployment[]> {
+  const res = await fetch(`${API_URL}/deployments`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load deployments')
+  return res.json()
+}
+
+export async function createDeployment(d: {
+  target_id: string
+  components: string[]
+}): Promise<Deployment> {
+  const res = await fetch(`${API_URL}/deployments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(d),
+  })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? 'Failed to start deployment')
+  return res.json()
+}
+
+export async function listAlertRules(projectId: string): Promise<AlertRule[]> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/alert-rules`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load alert rules')
+  return res.json()
+}
+
+export async function saveAlertRule(
+  projectId: string,
+  rule: { kind: AlertKind; threshold: number; window_n?: number; webhook_url?: string | null },
+): Promise<AlertRule> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/alert-rules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(rule),
+  })
+  if (!res.ok) throw new Error('Failed to save alert rule')
+  return res.json()
+}
+
+export async function patchAlertRule(
+  projectId: string,
+  ruleId: string,
+  patch: Partial<Pick<AlertRule, 'threshold' | 'window_n' | 'webhook_url' | 'enabled'>>,
+): Promise<AlertRule> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/alert-rules/${ruleId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error('Failed to update alert rule')
+  return res.json()
+}
+
+export async function deleteAlertRule(projectId: string, ruleId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/alert-rules/${ruleId}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to delete alert rule')
+}
+
+export async function listAlertEvents(projectId: string): Promise<AlertEvent[]> {
+  const res = await fetch(`${API_URL}/projects/${projectId}/alert-events`, { headers: await authHeaders() })
+  if (!res.ok) throw new Error('Failed to load alert events')
   return res.json()
 }
 

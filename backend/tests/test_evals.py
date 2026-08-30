@@ -37,3 +37,21 @@ def test_judge_item_unparseable_is_worst_case(monkeypatch):
     v = judge_item("q", "r", "a")
     assert v["score"] == 0.0 and v["hallucinated"] is True
     assert "unparseable" in v["reason"]
+
+
+def test_judge_item_generate_error_is_worst_case(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("groq 400 json_validate_failed")
+
+    monkeypatch.setattr(evals, "generate", boom)
+    v = judge_item("q", "r", "a")
+    assert v["score"] == 0.0 and v["hallucinated"] is True
+
+
+def test_judge_item_uses_cheap_model(monkeypatch):
+    from app.llm import MODEL_CHEAP
+
+    calls = []
+    monkeypatch.setattr(evals, "generate", lambda *a, **k: calls.append(k) or '{"score": 1, "hallucinated": false, "reason": ""}')
+    judge_item("q", "r", "a")
+    assert calls[0]["model"] == MODEL_CHEAP

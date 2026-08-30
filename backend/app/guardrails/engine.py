@@ -60,16 +60,18 @@ def check_input(text: str, chunk_texts: list[str], policies: dict) -> InputVerdi
     digest = text
     if chunk_texts:
         digest += "\n\n[retrieved context]\n" + "\n".join(c[:CHUNK_SCAN_CHARS] for c in chunk_texts)
-    raw = generate(
-        [
-            {"role": "system", "content": _CLASSIFIER_SYSTEM},
-            {"role": "user", "content": digest[:CLASSIFIER_INPUT_CHARS]},
-        ],
-        response_format={"type": "json_object"},
-    )
     try:
+        # MODEL, not MODEL_CHEAP: this is a security check in JSON mode, where
+        # the smaller model is unreliable (emits bare text -> Groq 400).
+        raw = generate(
+            [
+                {"role": "system", "content": _CLASSIFIER_SYSTEM},
+                {"role": "user", "content": digest[:CLASSIFIER_INPUT_CHARS]},
+            ],
+            response_format={"type": "json_object"},
+        )
         parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except Exception:  # noqa: BLE001 - classifier is fail-open by design
         return InputVerdict(True, None, {"note": "classifier_unparseable"})
     if parsed.get("injection"):
         return InputVerdict(False, "injection", {"source": "classifier", "reason": str(parsed.get("reason", ""))})

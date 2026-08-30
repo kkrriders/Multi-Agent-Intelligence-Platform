@@ -52,6 +52,28 @@ describe('TraceView', () => {
     ])
   })
 
+  it('shows per-node model + tokens + cost from llm_calls, and run cost in the header', () => {
+    const costed = {
+      ...run,
+      cost_usd: 0.0123,
+      cache_hit: false,
+      llm_calls: [
+        { node: 'executor', model: 'openai/gpt-oss-120b', prompt_tokens: 400, completion_tokens: 60, cost_usd: 0.011 },
+        { node: 'orchestrator', model: 'openai/gpt-oss-20b', prompt_tokens: 120, completion_tokens: 15, cost_usd: 0.0013 },
+      ],
+    }
+    render(<TraceView run={costed as never} />)
+    expect(screen.getByText(/\$0\.0123/)).toBeInTheDocument()
+    expect(screen.getByText(/openai\/gpt-oss-120b/)).toBeInTheDocument()
+    expect(screen.getByText(/400\+60 tok/)).toBeInTheDocument()
+  })
+
+  it('shows "$0 (cached)" in the header for a cache-hit run', () => {
+    const cached = { ...run, cache_hit: true, cost_usd: 0, llm_calls: [] }
+    render(<TraceView run={cached as never} />)
+    expect(screen.getByText(/\$0 \(cached\)/)).toBeInTheDocument()
+  })
+
   it('highlights an error row and shows its detail', () => {
     const errRun = {
       ...run,

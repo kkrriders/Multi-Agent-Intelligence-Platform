@@ -1,4 +1,36 @@
-import type { GuardrailEvent, Run, RunEvent } from '@/lib/api'
+import type { GuardrailEvent, Run, RunEvent, RunLlmCall } from '@/lib/api'
+
+// run_llm_calls.node -> the trace step_name it belongs to. tool_runner is
+// left out (its step name varies per turn). ponytail: calls for a node
+// across multiple turns are summed onto the first matching row.
+const NODE_STEP: Record<string, string> = {
+  orchestrator: 'orchestrator_decision',
+  researcher: 'worker_researcher',
+  executor: 'worker_executor',
+  verifier: 'verifier_check',
+  history: 'history_compressed',
+}
+
+function costByStep(calls: RunLlmCall[] = []): Map<string, RunLlmCall> {
+  const acc = new Map<string, RunLlmCall>()
+  for (const c of calls) {
+    const step = NODE_STEP[c.node]
+    if (!step) continue
+    const prev = acc.get(step)
+    acc.set(
+      step,
+      prev
+        ? {
+            ...prev,
+            prompt_tokens: prev.prompt_tokens + c.prompt_tokens,
+            completion_tokens: prev.completion_tokens + c.completion_tokens,
+            cost_usd: prev.cost_usd + c.cost_usd,
+          }
+        : { ...c },
+    )
+  }
+  return acc
+}
 
 type Row = {
   key: string
@@ -53,6 +85,12 @@ export default function TraceView({ run }: { run: Run }) {
       .filter((t): t is number => typeof t === 'number' && t >= 1)
   ).size
   const tools = (run.events ?? []).filter((e) => e.step_name === 'tool_called').length
+  const stepCost = costByStep(run.llm_calls)
+  const runCostLabel = run.cache_hit
+    ? '$0 (cached)'
+    : run.cost_usd != null
+      ? `$${run.cost_usd.toFixed(4)}`
+      : null
 
   return (
     <div
@@ -62,6 +100,7 @@ export default function TraceView({ run }: { run: Run }) {
       <p className="mb-3 font-mono text-xs text-card-stock-muted">
         {run.status} · {fmt(total)} · {turns} turn{turns === 1 ? '' : 's'} · {tools} tool
         {tools === 1 ? '' : 's'} · {guardrailSummary(run)}
+        {runCostLabel && ` · ${runCostLabel}`}
       </p>
 
       <ol className="flex flex-col gap-1">
@@ -82,6 +121,15 @@ export default function TraceView({ run }: { run: Run }) {
                 />
               </span>
             </div>
+            {stepCost.has(row.name) &&
+              (() => {
+                const c = stepCost.get(row.name)!
+                return (
+                  <p className="text-card-stock-muted">
+                    {c.model} · {c.prompt_tokens}+{c.completion_tokens} tok · ${c.cost_usd.toFixed(4)}
+                  </p>
+                )
+              })()}
             {row.isError ? (
               <pre className="mt-0.5 overflow-x-auto text-destructive">
                 {JSON.stringify(row.payload, null, 2)}

@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    alerts,
+    analytics,
     conversations,
+    deployments,
     documents,
     evals,
     guardrails,
@@ -23,7 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(alerts.router)
+app.include_router(analytics.router)
 app.include_router(conversations.router)
+app.include_router(deployments.router)
 app.include_router(documents.router)
 app.include_router(evals.router)
 app.include_router(guardrails.router)

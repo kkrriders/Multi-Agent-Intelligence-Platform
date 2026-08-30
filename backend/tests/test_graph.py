@@ -41,6 +41,71 @@ def test_orchestrator_unparseable_json_falls_back_to_skeleton(monkeypatch):
     assert out["route"] == "researcher"
 
 
+def _raise(*a, **k):
+    raise RuntimeError("groq 400 json_validate_failed")
+
+
+def test_orchestrator_generate_error_falls_back_to_skeleton(monkeypatch):
+    monkeypatch.setattr("app.graph.routing.generate", _raise)
+    out = orchestrator_node(_state(turn=0))
+    assert out["route"] == "researcher"
+
+
+def test_verifier_generate_error_passes_answer_through(monkeypatch):
+    monkeypatch.setattr("app.graph.workers.generate", _raise)
+    out = verifier_node(_state(turn=1, output="an answer", scratch={"researcher": "x", "tools": []}))
+    assert out["output"] == "an answer"
+    assert out["verdict"]["supported"] is True
+
+
+# ---- model-tier routing (Phase 3, Token Optimization) ----
+
+def _capture_generate(monkeypatch, target, ret):
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(k)
+        return ret
+
+    monkeypatch.setattr(target, fake)
+    return calls
+
+
+def test_orchestrator_uses_cheap_model(monkeypatch):
+    from app.llm import MODEL_CHEAP
+
+    calls = _capture_generate(monkeypatch, "app.graph.routing.generate", json.dumps({"next": "done"}))
+    orchestrator_node(_state(turn=0))
+    assert calls[0]["model"] == MODEL_CHEAP
+
+
+def test_researcher_and_verifier_use_cheap_model_executor_does_not(monkeypatch):
+    from app.llm import MODEL, MODEL_CHEAP
+
+    r_calls = _capture_generate(monkeypatch, "app.graph.workers.generate", "brief")
+    researcher_node(_state(turn=1))
+    assert r_calls[0]["model"] == MODEL_CHEAP
+
+    v_calls = _capture_generate(
+        monkeypatch, "app.graph.workers.generate", '{"supported": true, "note": "ok"}'
+    )
+    verifier_node(_state(turn=1, output="an answer", scratch={"researcher": "x", "tools": []}))
+    assert v_calls[0]["model"] == MODEL_CHEAP
+
+    e_calls = _capture_generate(monkeypatch, "app.graph.workers.generate", "the answer")
+    executor_node(_state(turn=1))
+    assert e_calls[0].get("model", MODEL) == MODEL
+
+
+def test_worker_nodes_set_usage_attribution(monkeypatch):
+    from app.llm import reset_usage, _current_node
+
+    monkeypatch.setattr("app.graph.workers.generate", lambda *a, **k: "the answer")
+    reset_usage()
+    executor_node(_state(turn=1))
+    assert _current_node.get() == "executor"
+
+
 # ---- researcher ----
 
 def test_researcher_writes_brief_and_counts(monkeypatch):

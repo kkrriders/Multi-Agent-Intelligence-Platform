@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Minimal runtime image: `.next/standalone` bundles only what the server
+  // needs, so the Docker runtime stage skips node_modules entirely.
+  output: "standalone",
 };
 
 export default nextConfig;

@@ -2,7 +2,7 @@ import json
 
 from langgraph.graph import END
 
-from app.llm import generate
+from app.llm import MODEL_CHEAP, generate, set_node
 
 MAX_TURNS = 4
 MAX_TOOL_CALLS = 3
@@ -85,16 +85,18 @@ def _progress_summary(state: dict) -> str:
 
 def orchestrator_node(state):
     turn = state["turn"] + 1
-    raw = generate(
-        [
-            {"role": "system", "content": _ORCHESTRATOR_SYSTEM},
-            {"role": "user", "content": f"User question: {state['input']}\n\nProgress:\n{_progress_summary(state)}\n\nWhat next?"},
-        ],
-        response_format={"type": "json_object"},
-    )
+    set_node("orchestrator")
     try:
+        raw = generate(
+            [
+                {"role": "system", "content": _ORCHESTRATOR_SYSTEM},
+                {"role": "user", "content": f"User question: {state['input']}\n\nProgress:\n{_progress_summary(state)}\n\nWhat next?"},
+            ],
+            response_format={"type": "json_object"},
+            model=MODEL_CHEAP,
+        )
         choice = json.loads(raw).get("next", "")
-    except (json.JSONDecodeError, AttributeError, TypeError):
+    except Exception:  # noqa: BLE001 - any routing-call failure falls back to the fixed skeleton
         choice = ""
     route = decide_route({**state, "turn": turn}, choice)
     event = {"step_name": "orchestrator_decision", "payload": {"turn": turn, "next": route, "llm_choice": choice}}

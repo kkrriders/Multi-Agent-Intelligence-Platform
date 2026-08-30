@@ -1,6 +1,6 @@
 import json
 
-from app.llm import generate
+from app.llm import MODEL_CHEAP, generate
 
 PASS_THRESHOLD = 0.7
 MAX_ITEMS = 20
@@ -16,14 +16,15 @@ _JUDGE_SYSTEM = (
 def judge_item(input: str, expected: str, output: str) -> dict:
     """One Groq JSON call grading `output` against `expected`. Never raises;
     an unparseable response scores 0.0 / hallucinated."""
-    raw = generate(
-        [
-            {"role": "system", "content": _JUDGE_SYSTEM},
-            {"role": "user", "content": f"INPUT: {input}\n\nREFERENCE: {expected}\n\nANSWER: {output}"},
-        ],
-        response_format={"type": "json_object"},
-    )
     try:
+        raw = generate(
+            [
+                {"role": "system", "content": _JUDGE_SYSTEM},
+                {"role": "user", "content": f"INPUT: {input}\n\nREFERENCE: {expected}\n\nANSWER: {output}"},
+            ],
+            response_format={"type": "json_object"},
+            model=MODEL_CHEAP,
+        )
         parsed = json.loads(raw)
         score = float(parsed.get("score", 0.0))
         return {
@@ -31,7 +32,7 @@ def judge_item(input: str, expected: str, output: str) -> dict:
             "hallucinated": bool(parsed.get("hallucinated", False)),
             "reason": str(parsed.get("reason", "")),
         }
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - judge is fail-open: any failure scores worst-case
         return {"score": 0.0, "hallucinated": True, "reason": "judge response unparseable"}
 
 
