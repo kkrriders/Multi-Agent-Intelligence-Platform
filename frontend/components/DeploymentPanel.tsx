@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   createDeployTarget,
   createDeployment,
@@ -11,6 +13,7 @@ import {
   type Deployment,
   type DeployTarget,
 } from '@/lib/api'
+import { EmptyState, Notice, PanelSection } from './PanelKit'
 
 const COMPONENTS = ['backend', 'frontend'] as const
 
@@ -105,72 +108,68 @@ export default function DeploymentPanel() {
 
   return (
     <div className="flex flex-col gap-8">
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <Notice>{error}</Notice>}
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-3">Deploy targets</h2>
-        <ul className="mb-3 flex flex-col gap-1">
-          {targets.map((t) => (
-            <li key={t.id} className="flex items-center justify-between border border-border p-2 font-mono text-xs">
-              <span>
-                {t.name} · {t.registry}/{t.image_repo}
-              </span>
-              <button
-                type="button"
-                aria-label={`Delete ${t.name}`}
-                onClick={() => removeTarget(t.id)}
-                className="text-destructive hover:underline"
+      <PanelSection title="Deploy targets">
+        {targets.length === 0 ? (
+          <EmptyState
+            title="No targets yet"
+            description="A target names where built images are pushed — a registry, an image repo, and its env-var set. Add one below; the config is stored even when the in-app build API is off, so you can deploy the published images by hand."
+          />
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {targets.map((t) => (
+              <li
+                key={t.id}
+                className="punch-corner flex items-center justify-between border border-border bg-card p-2 font-mono text-xs"
               >
-                delete
-              </button>
-            </li>
-          ))}
-          {targets.length === 0 && <li className="text-sm text-muted-foreground">No targets yet.</li>}
-        </ul>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="flex flex-col font-mono text-[0.65rem] text-muted-foreground">
+                <span>
+                  {t.name} · {t.registry}/{t.image_repo}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Delete ${t.name}`}
+                  onClick={() => removeTarget(t.id)}
+                  className="text-destructive hover:underline"
+                >
+                  delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="punch-corner-lg card-stack-shadow flex flex-col gap-3 border border-border bg-card p-4 sm:flex-row sm:items-end">
+          <label className="flex flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
             target name
-            <input
-              aria-label="target name"
-              className="border border-border bg-background p-1 text-sm text-foreground"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <Input aria-label="target name" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="flex flex-col font-mono text-[0.65rem] text-muted-foreground">
+          <label className="flex flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
             registry
-            <input
+            <Input
               aria-label="registry"
-              className="border border-border bg-background p-1 text-sm text-foreground"
               value={registry}
               onChange={(e) => setRegistry(e.target.value)}
             />
           </label>
-          <label className="flex flex-1 flex-col font-mono text-[0.65rem] text-muted-foreground">
+          <label className="flex flex-1 flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
             image repo
-            <input
+            <Input
               aria-label="image repo"
-              className="border border-border bg-background p-1 text-sm text-foreground"
               value={imageRepo}
               onChange={(e) => setImageRepo(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            onClick={addTarget}
-            className="border border-border px-3 py-1 font-mono text-xs hover:bg-muted"
-          >
+          <Button variant="outline" size="sm" onClick={addTarget}>
             Add target
-          </button>
+          </Button>
         </div>
-      </section>
+      </PanelSection>
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-3">Build &amp; publish</h2>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <PanelSection title="Build & publish">
+        <div className="punch-corner-lg card-stack-shadow flex flex-col gap-3 border border-border bg-card p-4 sm:flex-row sm:items-center">
           <select
             aria-label="deploy target"
-            className="border border-border bg-background p-1 text-sm text-foreground"
+            className="punch-corner-sm border border-border bg-background p-1 text-sm text-foreground"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
           >
@@ -186,37 +185,41 @@ export default function DeploymentPanel() {
                 type="checkbox"
                 checked={components.includes(c)}
                 onChange={(e) =>
-                  setComponents((cur) => (e.target.checked ? [...cur, c] : cur.filter((x) => x !== c)))
+                  setComponents((cur) =>
+                    e.target.checked ? [...cur, c] : cur.filter((x) => x !== c)
+                  )
                 }
               />
               {c}
             </label>
           ))}
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={build}
             disabled={!apiEnabled || building || !targetId || components.length === 0}
-            className="border border-border px-3 py-1 font-mono text-xs hover:bg-muted disabled:opacity-50"
           >
             {building ? 'Building…' : 'Build & Publish'}
-          </button>
+          </Button>
         </div>
         {!apiEnabled && (
-          <p className="mt-2 font-mono text-xs text-muted-foreground">
+          <p className="font-mono text-xs text-muted-foreground">
             Deploy API is disabled on this server (set ENABLE_DEPLOY_API=true and mount the docker
             socket). Target config is still saved for a manual deploy.
           </p>
         )}
-      </section>
+      </PanelSection>
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-2">Deployment history</h2>
+      <PanelSection title="Deployment history">
         {deployments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No deployments yet.</p>
+          <EmptyState
+            title="No deployments yet"
+            description="Each build records its image tag, git SHA, the components built, status, and the full build log. Runs in progress refresh automatically."
+          />
         ) : (
           <ul className="flex flex-col gap-1 font-mono text-xs">
             {deployments.map((d) => (
-              <li key={d.id} className="border border-border p-2">
+              <li key={d.id} className="punch-corner border border-border bg-card p-2">
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span>{new Date(d.created_at).toLocaleString()}</span>
                   <span className="font-bold">{d.image_tag}</span>
@@ -244,7 +247,7 @@ export default function DeploymentPanel() {
             ))}
           </ul>
         )}
-      </section>
+      </PanelSection>
     </div>
   )
 }

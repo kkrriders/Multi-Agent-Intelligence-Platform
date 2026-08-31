@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   deleteAlertRule,
   getLimits,
@@ -12,6 +14,7 @@ import {
   type AlertKind,
   type AlertRule,
 } from '@/lib/api'
+import { EmptyState, Notice, PanelSection } from './PanelKit'
 
 const KINDS: { kind: AlertKind; label: string; unit: string; hasWindow: boolean }[] = [
   { kind: 'error_rate', label: 'Error rate', unit: 'fraction 0–1', hasWindow: true },
@@ -33,7 +36,7 @@ export default function SettingsPanel({ projectId }: { projectId: string }) {
   const [limit, setLimit] = useState<number | null>(null)
   const [rules, setRules] = useState<Record<string, AlertRule>>({})
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
-    Object.fromEntries(KINDS.map((k) => [k.kind, draftFrom()])),
+    Object.fromEntries(KINDS.map((k) => [k.kind, draftFrom()]))
   )
   const [events, setEvents] = useState<AlertEvent[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -98,19 +101,19 @@ export default function SettingsPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-8">
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <Notice>{error}</Notice>}
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-2">Rate limit</h2>
-        <p className="text-sm text-muted-foreground">
-          {limit == null
-            ? 'Server-enforced per-user run rate limit.'
-            : `Max ${limit} runs per minute per user, enforced by the server.`}
-        </p>
-      </section>
+      <PanelSection title="Rate limit">
+        <div className="punch-corner border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">
+            {limit == null
+              ? 'Server-enforced per-user run rate limit.'
+              : `Max ${limit} runs per minute per user, enforced by the server.`}
+          </p>
+        </div>
+      </PanelSection>
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-3">Alert rules</h2>
+      <PanelSection title="Alert rules">
         <div className="flex flex-col gap-3">
           {KINDS.map(({ kind, label, unit, hasWindow }) => {
             const rule = rules[kind]
@@ -118,7 +121,7 @@ export default function SettingsPanel({ projectId }: { projectId: string }) {
             return (
               <div
                 key={kind}
-                className="punch-corner border border-border p-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3"
+                className="punch-corner card-stack-shadow flex flex-col gap-2 border border-border bg-card p-3 sm:flex-row sm:items-end sm:gap-3"
               >
                 <div className="min-w-32">
                   <p className="font-mono text-sm">{label}</p>
@@ -132,61 +135,55 @@ export default function SettingsPanel({ projectId }: { projectId: string }) {
                     )}
                   </p>
                 </div>
-                <label className="flex flex-col font-mono text-[0.65rem] text-muted-foreground">
+                <label className="flex flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
                   threshold
-                  <input
+                  <Input
                     aria-label={`${label} threshold`}
-                    className="border border-border bg-background p-1 text-sm text-foreground"
                     value={d.threshold}
                     onChange={(e) => set(kind, 'threshold', e.target.value)}
                   />
                 </label>
                 {hasWindow && (
-                  <label className="flex flex-col font-mono text-[0.65rem] text-muted-foreground">
+                  <label className="flex flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
                     window (runs)
-                    <input
+                    <Input
                       aria-label={`${label} window`}
-                      className="w-20 border border-border bg-background p-1 text-sm text-foreground"
+                      className="w-20"
                       value={d.window_n}
                       onChange={(e) => set(kind, 'window_n', e.target.value)}
                     />
                   </label>
                 )}
-                <label className="flex flex-1 flex-col font-mono text-[0.65rem] text-muted-foreground">
+                <label className="flex flex-1 flex-col gap-1 font-mono text-[0.65rem] text-muted-foreground">
                   webhook URL (optional)
-                  <input
+                  <Input
                     aria-label={`${label} webhook`}
-                    className="border border-border bg-background p-1 text-sm text-foreground"
                     value={d.webhook_url}
                     onChange={(e) => set(kind, 'webhook_url', e.target.value)}
                   />
                 </label>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="sm"
                     aria-label={`Save ${label}`}
                     onClick={() => save(kind, hasWindow)}
-                    className="border border-border px-2 py-1 font-mono text-xs hover:bg-muted"
                   >
                     Save
-                  </button>
+                  </Button>
                   {rule && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => toggle(rule)}
-                        className="border border-border px-2 py-1 font-mono text-xs hover:bg-muted"
-                      >
+                      <Button variant="outline" size="sm" onClick={() => toggle(rule)}>
                         {rule.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         aria-label={`Delete ${label}`}
                         onClick={() => remove(rule)}
-                        className="border border-border px-2 py-1 font-mono text-xs text-destructive hover:bg-muted"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>
@@ -194,35 +191,39 @@ export default function SettingsPanel({ projectId }: { projectId: string }) {
             )
           })}
         </div>
-      </section>
+      </PanelSection>
 
-      <section>
-        <h2 className="font-heading text-sm font-bold uppercase mb-2">Alert history</h2>
+      <PanelSection title="Alert history">
         {events.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No alerts yet.</p>
+          <EmptyState
+            title="No alerts yet"
+            description="When an enabled rule breaches its threshold after a run, it is recorded here (and its webhook fires, if set). Rate-limit hits also land in this log."
+          />
         ) : (
-          <table className="w-full font-mono text-xs">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="text-left font-normal">When</th>
-                <th className="text-left font-normal">Kind</th>
-                <th className="text-right font-normal">Observed</th>
-                <th className="text-right font-normal">Threshold</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((e) => (
-                <tr key={e.id} className="border-t border-border">
-                  <td className="py-1">{new Date(e.created_at).toLocaleString()}</td>
-                  <td>{e.kind}</td>
-                  <td className="text-right">{e.observed}</td>
-                  <td className="text-right">{e.threshold}</td>
+          <div className="punch-corner-lg overflow-x-auto border border-border bg-card p-4">
+            <table className="w-full font-mono text-xs">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="text-left font-normal">When</th>
+                  <th className="text-left font-normal">Kind</th>
+                  <th className="text-right font-normal">Observed</th>
+                  <th className="text-right font-normal">Threshold</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {events.map((e) => (
+                  <tr key={e.id} className="border-t border-border">
+                    <td className="py-1">{new Date(e.created_at).toLocaleString()}</td>
+                    <td>{e.kind}</td>
+                    <td className="text-right">{e.observed}</td>
+                    <td className="text-right">{e.threshold}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </section>
+      </PanelSection>
     </div>
   )
 }

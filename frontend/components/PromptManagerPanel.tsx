@@ -13,9 +13,11 @@ import {
   type PromptTemplateVersion,
   type Run,
 } from '@/lib/api'
+import { EmptyState, Notice, SkeletonRows } from './PanelKit'
 
 export default function PromptManagerPanel({ projectId }: { projectId: string }) {
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -35,6 +37,7 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
         setSelectedId((cur) => cur ?? list[0]?.id ?? null)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load templates'))
+      .finally(() => setLoading(false))
   }, [projectId])
 
   useEffect(() => {
@@ -67,7 +70,13 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
       setTemplates((prev) =>
         prev.map((t) =>
           t.id === selected.id
-            ? { ...t, body: version.body, version: version.version, variables: version.variables, version_count: t.version_count + 1 }
+            ? {
+                ...t,
+                body: version.body,
+                version: version.version,
+                variables: version.variables,
+                version_count: t.version_count + 1,
+              }
             : t
         )
       )
@@ -89,17 +98,23 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
       <div className="flex shrink-0 flex-col gap-2 sm:w-64">
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <Notice>{error}</Notice>}
         <Button size="sm" variant="outline" onClick={() => setCreating((c) => !c)}>
           New template
         </Button>
         {creating && (
           <div className="punch-corner flex flex-col gap-2 border border-border bg-card p-3">
-            <label htmlFor="new-name" className="text-xs tracking-wide text-muted-foreground uppercase">
+            <label
+              htmlFor="new-name"
+              className="text-xs tracking-wide text-muted-foreground uppercase"
+            >
               Template name
             </label>
             <Input id="new-name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-            <label htmlFor="new-body" className="text-xs tracking-wide text-muted-foreground uppercase">
+            <label
+              htmlFor="new-body"
+              className="text-xs tracking-wide text-muted-foreground uppercase"
+            >
               Template body
             </label>
             <textarea
@@ -115,27 +130,37 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
             </Button>
           </div>
         )}
-        <ul className="flex flex-col gap-1">
-          {templates.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => setSelectedId(t.id)}
-                className={`w-full border border-border p-2 text-left font-mono text-xs ${
-                  t.id === selectedId ? 'border-primary font-bold' : 'hover:bg-muted'
-                }`}
-              >
-                {t.name} · v{t.version} · {t.variables.length} var{t.variables.length === 1 ? '' : 's'}
-              </button>
-            </li>
-          ))}
-        </ul>
+        {loading ? (
+          <SkeletonRows rows={2} />
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {templates.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(t.id)}
+                  className={`punch-corner-sm w-full border p-2 text-left font-mono text-xs transition-colors ${
+                    t.id === selectedId
+                      ? 'border-primary bg-muted font-bold'
+                      : 'border-border hover:bg-muted'
+                  }`}
+                >
+                  {t.name} · v{t.version} · {t.variables.length} var
+                  {t.variables.length === 1 ? '' : 's'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {selected && (
+      {selected ? (
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <div className="punch-corner-lg card-stack-shadow flex flex-col gap-2 border border-border bg-card p-4">
-            <label htmlFor="edit-body" className="text-xs tracking-wide text-muted-foreground uppercase">
+            <label
+              htmlFor="edit-body"
+              className="text-xs tracking-wide text-muted-foreground uppercase"
+            >
               Template body
             </label>
             <textarea
@@ -151,7 +176,9 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
           </div>
 
           <div className="punch-corner-lg card-stack-shadow border border-border bg-card p-4">
-            <p className="mb-2 text-xs tracking-wide text-muted-foreground uppercase">Version history</p>
+            <p className="mb-2 text-xs tracking-wide text-muted-foreground uppercase">
+              Version history
+            </p>
             <ul className="flex flex-col gap-1">
               {versions.map((v) => (
                 <li key={v.id} className="font-mono text-xs">
@@ -191,6 +218,15 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
             )}
           </div>
         </div>
+      ) : (
+        !creating && (
+          <div className="min-w-0 flex-1">
+            <EmptyState
+              title="No template selected"
+              description="Create a reusable prompt with {{variable}} placeholders — the variable list is inferred from the body. Every save is a new, immutable version; a run renders the latest one. Use Test to render and run a version with sample values."
+            />
+          </div>
+        )
       )}
     </div>
   )

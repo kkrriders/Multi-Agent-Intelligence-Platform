@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { deleteDocument, listDocuments, uploadDocument, type Document } from '@/lib/api'
+import { EmptyState, Notice, PanelSection, SkeletonRows } from './PanelKit'
 
 export default function KnowledgeHubPanel({ projectId }: { projectId: string }) {
   const [documents, setDocuments] = useState<Document[]>([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -17,6 +19,7 @@ export default function KnowledgeHubPanel({ projectId }: { projectId: string }) 
         if (!hasLocalUpdate.current) setDocuments(list)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load documents'))
+      .finally(() => setLoading(false))
   }, [projectId])
 
   async function handleUpload() {
@@ -49,10 +52,13 @@ export default function KnowledgeHubPanel({ projectId }: { projectId: string }) 
 
   return (
     <div className="flex flex-col gap-6">
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <Notice>{error}</Notice>}
 
-      <div className="punch-corner-lg card-stack-shadow flex items-center gap-2 border border-border bg-card p-4">
-        <label htmlFor="document-file" className="text-xs tracking-wide text-muted-foreground uppercase">
+      <div className="punch-corner-lg card-stack-shadow flex flex-wrap items-center gap-3 border border-border bg-card p-4">
+        <label
+          htmlFor="document-file"
+          className="text-xs tracking-wide text-muted-foreground uppercase"
+        >
           Upload document
         </label>
         <input
@@ -63,29 +69,40 @@ export default function KnowledgeHubPanel({ projectId }: { projectId: string }) 
           className="text-sm"
         />
         <Button onClick={handleUpload} disabled={uploading}>
-          {uploading ? 'Uploading...' : 'Upload'}
+          {uploading ? 'Uploading…' : 'Upload'}
         </Button>
       </div>
 
-      <ul className="flex flex-col gap-2">
-        {documents.map((doc) => (
-          <li
-            key={doc.id}
-            className="punch-corner flex items-center justify-between gap-4 border border-border bg-card p-3"
-          >
-            <div>
-              <p className="font-mono text-sm">{doc.filename}</p>
-              <p className="text-xs text-muted-foreground">
-                {doc.status}
-                {doc.error ? `: ${doc.error}` : ''}
-              </p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => handleDelete(doc.id)}>
-              Delete
-            </Button>
-          </li>
-        ))}
-      </ul>
+      <PanelSection title="Documents">
+        {loading ? (
+          <SkeletonRows />
+        ) : documents.length === 0 ? (
+          <EmptyState
+            title="No documents yet"
+            description="Upload a .txt, .md, or .pdf. Each file is chunked, embedded, and stored for hybrid (vector + keyword) retrieval — runs then cite the exact chunks they drew on. The source file stays in a private, owner-scoped storage bucket."
+          />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {documents.map((doc) => (
+              <li
+                key={doc.id}
+                className="punch-corner flex items-center justify-between gap-4 border border-border bg-card p-3"
+              >
+                <div>
+                  <p className="font-mono text-sm">{doc.filename}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {doc.status}
+                    {doc.error ? `: ${doc.error}` : ''}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => handleDelete(doc.id)}>
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PanelSection>
     </div>
   )
 }

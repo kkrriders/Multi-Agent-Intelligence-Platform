@@ -13,6 +13,7 @@ import {
   type PromptTemplate,
   type Run,
 } from '@/lib/api'
+import { EmptyState, Notice } from './PanelKit'
 import Timeline from './Timeline'
 
 export default function ChatPanel({ projectId }: { projectId: string }) {
@@ -106,81 +107,105 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <label htmlFor="conversation-select" className="sr-only">Conversation</label>
-        <select
-          id="conversation-select"
-          value={conversationId ?? ''}
-          onChange={(e) => setConversationId(e.target.value || null)}
-          className="border border-border bg-card px-2 py-1 text-sm"
-        >
-          <option value="">New conversation</option>
-          {conversations.map((c) => (
-            <option key={c.id} value={c.id}>{c.title}</option>
-          ))}
-        </select>
-        <Button variant="outline" size="sm" onClick={handleNewConversation}>
-          New conversation
-        </Button>
-      </div>
-
-      {templates.length > 0 && (
-        <div className="flex items-center gap-2">
-          <label htmlFor="template-select" className="text-xs tracking-wide text-muted-foreground uppercase">
-            Template
+      <div className="punch-corner-lg card-stack-shadow flex flex-col gap-3 border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="conversation-select" className="sr-only">
+            Conversation
           </label>
           <select
-            id="template-select"
-            aria-label="Template"
-            value={templateId}
-            onChange={(e) => {
-              setTemplateId(e.target.value)
-              setVars({})
-            }}
-            className="border border-border bg-card px-2 py-1 text-sm"
+            id="conversation-select"
+            value={conversationId ?? ''}
+            onChange={(e) => setConversationId(e.target.value || null)}
+            className="punch-corner-sm border border-border bg-background px-2 py-1 text-sm"
           >
-            <option value="">(free text)</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            <option value="">New conversation</option>
+            {conversations.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
               </option>
             ))}
           </select>
+          <Button variant="outline" size="sm" onClick={handleNewConversation}>
+            New conversation
+          </Button>
+          {templates.length > 0 && (
+            <>
+              <label
+                htmlFor="template-select"
+                className="ml-auto text-[0.7rem] tracking-wide text-muted-foreground uppercase"
+              >
+                Template
+              </label>
+              <select
+                id="template-select"
+                aria-label="Template"
+                value={templateId}
+                onChange={(e) => {
+                  setTemplateId(e.target.value)
+                  setVars({})
+                }}
+                className="punch-corner-sm border border-border bg-background px-2 py-1 text-sm"
+              >
+                <option value="">(free text)</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
-      )}
 
-      <div className="flex flex-wrap items-end gap-2">
-        {activeTemplate ? (
-          activeTemplate.variables.map((v) => (
-            <label key={v} className="flex flex-col gap-1 text-xs">
-              <span className="font-mono">{v}</span>
+        <div className="flex flex-wrap items-end gap-2">
+          {activeTemplate ? (
+            activeTemplate.variables.map((v) => (
+              <label key={v} className="flex flex-col gap-1 text-xs">
+                <span className="font-mono">{v}</span>
+                <Input
+                  aria-label={`var ${v}`}
+                  value={vars[v] ?? ''}
+                  onChange={(e) => setVars((prev) => ({ ...prev, [v]: e.target.value }))}
+                />
+              </label>
+            ))
+          ) : (
+            <>
+              <label htmlFor="chat-message" className="sr-only">
+                Message
+              </label>
               <Input
-                aria-label={`var ${v}`}
-                value={vars[v] ?? ''}
-                onChange={(e) => setVars((prev) => ({ ...prev, [v]: e.target.value }))}
+                id="chat-message"
+                className="flex-1"
+                placeholder="Ask the agent something, or describe a task…"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
               />
-            </label>
-          ))
-        ) : (
-          <>
-            <label htmlFor="chat-message" className="sr-only">Message</label>
-            <Input id="chat-message" value={message} onChange={(e) => setMessage(e.target.value)} />
-          </>
-        )}
-        <Button onClick={handleSend} disabled={loading}>
-          {loading ? 'Sending...' : 'Send'}
-        </Button>
+            </>
+          )}
+          <Button onClick={handleSend} disabled={loading}>
+            {loading ? 'Sending…' : 'Send'}
+          </Button>
+        </div>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {error && <Notice>{error}</Notice>}
       {blocked && (
-        <p role="status" className="border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+        <p
+          role="status"
+          className="punch-corner border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {blocked}
         </p>
       )}
-      {runs.length > 0 && (
+
+      {runs.length > 0 ? (
         <div className="flex flex-col gap-4">
           {runs.map((run) => (
-            <div key={run.id} className="punch-corner-lg card-stack-shadow border border-secondary/50 bg-card p-4">
+            <div
+              key={run.id}
+              className="punch-corner-lg card-stack-shadow border border-secondary/50 bg-card p-4"
+            >
               <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-secondary-tint uppercase">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-secondary" />
                 Agent thread
@@ -202,6 +227,11 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
           ))}
           {latestRun && <Timeline events={latestRun.events} guardrails={latestRun.guardrails} />}
         </div>
+      ) : (
+        <EmptyState
+          title="No runs in this conversation yet"
+          description="Send a message above to run it through guardrails, memory recall, retrieval, orchestration, and cost tracking. The agent's answer and a step-by-step execution timeline appear here."
+        />
       )}
     </div>
   )
