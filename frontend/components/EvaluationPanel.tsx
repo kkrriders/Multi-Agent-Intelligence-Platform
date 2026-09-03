@@ -46,6 +46,9 @@ export default function EvaluationPanel({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!selectedId) return
+    // Reset the last-run view when the selected dataset changes, then load the
+    // new dataset's detail and run history.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLastRun(null)
     getEvalDataset(selectedId).then(setDetail).catch(() => setDetail(null))
     listEvalRuns(selectedId).then(setRuns).catch(() => setRuns([]))

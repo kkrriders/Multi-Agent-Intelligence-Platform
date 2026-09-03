@@ -42,6 +42,9 @@ export default function PromptManagerPanel({ projectId }: { projectId: string })
 
   useEffect(() => {
     if (!selected) return
+    // Re-seed the editable body and clear the test panel whenever a different
+    // template is selected, then load that template's version history.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditBody(selected.body)
     setTestVars({})
     setTestRun(null)

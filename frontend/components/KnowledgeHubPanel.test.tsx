@@ -55,4 +55,12 @@ describe('KnowledgeHubPanel', () => {
     await waitFor(() => expect(deleteDocument).toHaveBeenCalledWith('project-1', 'doc-1'))
     await waitFor(() => expect(screen.queryByText('notes.txt')).not.toBeInTheDocument())
   })
+
+  it('shows a teaching empty state when there are no documents', async () => {
+    listDocuments.mockResolvedValueOnce([])
+    const { default: KnowledgeHubPanel } = await import('./KnowledgeHubPanel')
+    render(<KnowledgeHubPanel projectId="project-1" />)
+
+    await waitFor(() => expect(screen.getByText(/no documents yet/i)).toBeInTheDocument())
+  })
 })

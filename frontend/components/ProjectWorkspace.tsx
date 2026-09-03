@@ -18,9 +18,9 @@ type PanelMeta = { title: string; subtitle: string; render: (projectId: string) 
 
 const PANELS: Record<WorkspaceTab, PanelMeta> = {
   chat: {
-    title: 'Chat / Run',
+    title: 'Playground',
     subtitle:
-      'Send input through the full request lifecycle and read back the woven execution record.',
+      'Hand-test prompts and agents here — this is a console, not the production chat. Your users reach the same pipeline through the REST API. Every send runs the full lifecycle and returns the woven execution record.',
     render: (id) => <ChatPanel projectId={id} />,
   },
   tools: {

@@ -50,6 +50,8 @@ export default function ToolManagerPanel({ projectId }: { projectId: string }) {
   }
 
   async function handleTest(tool: Tool) {
+    // Event handler, not render — wall-clock latency for the result readout.
+    // eslint-disable-next-line react-hooks/purity
     const start = Date.now()
     try {
       const result = await invokeTool(tool.id, {})

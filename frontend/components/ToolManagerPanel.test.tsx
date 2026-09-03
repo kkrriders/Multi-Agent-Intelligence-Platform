@@ -108,4 +108,12 @@ describe('ToolManagerPanel', () => {
 
     await waitFor(() => expect(screen.getByText(/allow_write/i)).toBeInTheDocument())
   })
+
+  it('shows a teaching empty state when no tools are registered', async () => {
+    listTools.mockResolvedValueOnce([])
+    const { default: ToolManagerPanel } = await import('./ToolManagerPanel')
+    render(<ToolManagerPanel projectId="project-1" />)
+
+    await waitFor(() => expect(screen.getByText(/no tools registered/i)).toBeInTheDocument())
+  })
 })

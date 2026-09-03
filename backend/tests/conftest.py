@@ -12,7 +12,9 @@ def auth_headers():
     real test user against the real Supabase project) before running
     integration tests that use this fixture.
     """
-    token = os.environ["SUPABASE_TEST_USER_TOKEN"]
+    token = os.environ.get("SUPABASE_TEST_USER_TOKEN")
+    if not token:
+        pytest.skip("SUPABASE_TEST_USER_TOKEN not set; this integration test needs a real signed-in user")
     return {"Authorization": f"Bearer {token}"}
 
 

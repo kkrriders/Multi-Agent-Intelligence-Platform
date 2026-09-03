@@ -94,4 +94,14 @@ describe('ChatPanel', () => {
 
     await waitFor(() => expect(screen.getByText(/blocked by guardrail/i)).toBeInTheDocument())
   })
+
+  it('shows a teaching empty state when the conversation has no runs', async () => {
+    listConversationRuns.mockResolvedValueOnce([])
+    const { default: ChatPanel } = await import('./ChatPanel')
+    render(<ChatPanel projectId="project-1" />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/no runs in this conversation yet/i)).toBeInTheDocument()
+    )
+  })
 })

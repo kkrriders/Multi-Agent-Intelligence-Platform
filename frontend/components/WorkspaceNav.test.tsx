@@ -7,7 +7,7 @@ describe('WorkspaceNav', () => {
     const onSelect = vi.fn()
     render(<WorkspaceNav active="chat" onSelect={onSelect} />)
 
-    expect(screen.getByRole('button', { name: /chat \/ run/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /playground/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /tool manager/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /prompt manager/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /knowledge hub/i })).toBeInTheDocument()

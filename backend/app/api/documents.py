@@ -23,7 +23,7 @@ async def upload_document(project_id: str, file: UploadFile = File(...), user: d
     document_id = str(uuid.uuid4())
     storage_path = f"{project_id}/{document_id}/{file.filename}"
 
-    document = client.table("documents").insert(
+    client.table("documents").insert(
         {
             "id": document_id,
             "project_id": project_id,
@@ -32,7 +32,7 @@ async def upload_document(project_id: str, file: UploadFile = File(...), user: d
             "storage_path": storage_path,
             "status": "pending",
         }
-    ).execute().data[0]
+    ).execute()
 
     try:
         client.storage.from_(BUCKET).upload(storage_path, content, {"content-type": file.content_type})

@@ -106,8 +106,10 @@ rules:
   small batches; running all of them back-to-back can transiently flake on
   the single shared Supabase project (concurrent-signup contention) — this
   is environmental, not a product bug.
-- One pre-existing `ruff` `F841` in `app/api/documents.py:26` is known and
-  unrelated to any current work.
+- `.github/workflows/ci.yml` runs on every push/PR: frontend (`eslint`,
+  `tsc`, `vitest`, `next build`) and backend (`ruff check app`, `pytest`
+  with dummy Supabase/Groq env — the 35 real-service integration tests
+  skip themselves). Keep both green.
 
 ## Commands
 

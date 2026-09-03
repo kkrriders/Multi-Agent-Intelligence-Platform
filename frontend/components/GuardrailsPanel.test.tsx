@@ -59,4 +59,13 @@ describe('GuardrailsPanel', () => {
       })
     )
   })
+
+  it('shows a teaching empty state when there are no guardrail events', async () => {
+    listGuardrailPolicies.mockResolvedValue([policy('input_constraint'), policy('output_constraint')])
+    listGuardrailEvents.mockResolvedValue([])
+    const { default: GuardrailsPanel } = await import('./GuardrailsPanel')
+    render(<GuardrailsPanel projectId="p1" />)
+
+    await waitFor(() => expect(screen.getByText(/no guardrail events yet/i)).toBeInTheDocument())
+  })
 })

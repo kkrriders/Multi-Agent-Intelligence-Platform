@@ -45,10 +45,7 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
   }, [projectId])
 
   useEffect(() => {
-    if (!conversationId) {
-      setRuns([])
-      return
-    }
+    if (!conversationId) return
     if (skipNextFetch.current) {
       skipNextFetch.current = false
       return
@@ -115,7 +112,11 @@ export default function ChatPanel({ projectId }: { projectId: string }) {
           <select
             id="conversation-select"
             value={conversationId ?? ''}
-            onChange={(e) => setConversationId(e.target.value || null)}
+            onChange={(e) => {
+              const next = e.target.value || null
+              if (!next) setRuns([])
+              setConversationId(next)
+            }}
             className="punch-corner-sm border border-border bg-background px-2 py-1 text-sm"
           >
             <option value="">New conversation</option>

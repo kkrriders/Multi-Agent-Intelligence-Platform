@@ -14,7 +14,7 @@ export type WorkspaceTab =
   | 'settings'
 
 const TABS: { id: WorkspaceTab; label: string }[] = [
-  { id: 'chat', label: 'Chat / Run' },
+  { id: 'chat', label: 'Playground' },
   { id: 'tools', label: 'Tool Manager' },
   { id: 'prompt-manager', label: 'Prompt Manager' },
   { id: 'knowledge-hub', label: 'Knowledge Hub' },

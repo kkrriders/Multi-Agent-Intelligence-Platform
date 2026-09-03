@@ -30,4 +30,13 @@ describe('MemoryExplorerPanel', () => {
     await waitFor(() => expect(searchMemories).toHaveBeenCalledWith('project-1', 'launch codeword'))
     await waitFor(() => expect(screen.getByText(/Bluebird/)).toBeInTheDocument())
   })
+
+  it('teaches the panel before a search and when there are no conversations', async () => {
+    listConversations.mockResolvedValueOnce([])
+    const { default: MemoryExplorerPanel } = await import('./MemoryExplorerPanel')
+    render(<MemoryExplorerPanel projectId="project-1" />)
+
+    await waitFor(() => expect(screen.getByText(/no conversations yet/i)).toBeInTheDocument())
+    expect(screen.getByText(/search this project/i)).toBeInTheDocument()
+  })
 })
