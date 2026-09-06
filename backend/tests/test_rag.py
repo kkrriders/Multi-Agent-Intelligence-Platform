@@ -1,7 +1,14 @@
 import uuid
 from io import BytesIO
 
-from app.rag import chunk_text, delete_document_vectors, embed_and_store_chunks, extract_text, retrieve_chunks
+from app.rag import (
+    KEYWORD_MATCH_SCORE,
+    chunk_text,
+    delete_document_vectors,
+    embed_and_store_chunks,
+    extract_text,
+    retrieve_chunks,
+)
 
 
 def test_chunk_text_splits_with_overlap():
@@ -94,6 +101,62 @@ def test_embed_and_store_then_retrieve_finds_vector_match(qdrant_available):
     assert match["document_id"] == document_id
     assert match["filename"] == "notes.txt"
     assert match["project_id"] == project_id
+
+
+def test_retrieve_chunks_vector_mode_skips_keyword_search(qdrant_available):
+    project_id = str(uuid.uuid4())
+    document_id = str(uuid.uuid4())
+    chunk_id = str(uuid.uuid4())
+
+    embed_and_store_chunks(
+        project_id=project_id,
+        document_id=document_id,
+        filename="notes.txt",
+        chunks=[{"chunk_id": chunk_id, "chunk_index": 0, "content": "The launch codeword is Bluebird."}],
+    )
+
+    class _ExplodingKeywordClient(_EmptyKeywordClient):
+        def table(self, name):
+            raise AssertionError("mode='vector' must not touch the keyword-search client")
+
+    results = retrieve_chunks(_ExplodingKeywordClient(), project_id, "rocket launch codeword", mode="vector")
+
+    assert any(r["chunk_id"] == chunk_id for r in results)
+
+
+def test_retrieve_chunks_keyword_mode_skips_vector_search():
+    # No qdrant_available gate: mode="keyword" never touches Qdrant, so this
+    # runs (and covers the keyword-only merge branch) in CI.
+    project_id = str(uuid.uuid4())
+
+    class _MatchingKeywordClient(_EmptyKeywordClient):
+        def execute(self):
+            class _Result:
+                data = [
+                    {
+                        "id": "kw-chunk",
+                        "document_id": "doc-1",
+                        "chunk_index": 0,
+                        "content": "matched by keyword only",
+                        "documents": {"filename": "kw.txt"},
+                    }
+                ]
+
+            return _Result()
+
+    results = retrieve_chunks(_MatchingKeywordClient(), project_id, "irrelevant to any vector", mode="keyword")
+
+    assert results == [
+        {
+            "score": KEYWORD_MATCH_SCORE,
+            "project_id": project_id,
+            "document_id": "doc-1",
+            "chunk_id": "kw-chunk",
+            "chunk_index": 0,
+            "filename": "kw.txt",
+            "content": "matched by keyword only",
+        }
+    ]
 
 
 def test_delete_document_vectors_removes_points(qdrant_available):

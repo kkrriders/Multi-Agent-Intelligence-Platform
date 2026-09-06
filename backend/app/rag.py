@@ -90,42 +90,46 @@ def delete_document_vectors(document_id: str) -> None:
     )
 
 
-def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5) -> list[dict]:
-    embedder = _ensure_collection()
-    vector = next(iter(embedder.embed([query])))
-    vector_hits = _client.query_points(
-        collection_name=COLLECTION,
-        query=vector.tolist(),
-        query_filter=models.Filter(
-            must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=project_id))]
-        ),
-        limit=top_k,
-    ).points
-
+def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5, mode: str = "hybrid") -> list[dict]:
+    """mode: "hybrid" (default, vector + keyword), "vector", or "keyword" —
+    the ablation modes exist for benchmarks/rag_ablation.py, not product use."""
     merged: dict[str, dict] = {}
-    for hit in vector_hits:
-        if hit.score >= SCORE_THRESHOLD:
-            merged[hit.payload["chunk_id"]] = {"score": hit.score, **hit.payload}
 
-    keyword_rows = (
-        client.table("document_chunks")
-        .select("id, document_id, chunk_index, content, documents(filename)")
-        .eq("project_id", project_id)
-        .limit(top_k)
-        .text_search("content_tsv", query, options={"type": "plain", "config": "english"})
-        .execute()
-        .data
-    )
-    for row in keyword_rows:
-        if row["id"] not in merged:
-            merged[row["id"]] = {
-                "score": KEYWORD_MATCH_SCORE,
-                "project_id": project_id,
-                "document_id": row["document_id"],
-                "chunk_id": row["id"],
-                "chunk_index": row["chunk_index"],
-                "filename": row["documents"]["filename"],
-                "content": row["content"],
-            }
+    if mode in ("hybrid", "vector"):
+        embedder = _ensure_collection()
+        vector = next(iter(embedder.embed([query])))
+        vector_hits = _client.query_points(
+            collection_name=COLLECTION,
+            query=vector.tolist(),
+            query_filter=models.Filter(
+                must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=project_id))]
+            ),
+            limit=top_k,
+        ).points
+        for hit in vector_hits:
+            if hit.score >= SCORE_THRESHOLD:
+                merged[hit.payload["chunk_id"]] = {"score": hit.score, **hit.payload}
+
+    if mode in ("hybrid", "keyword"):
+        keyword_rows = (
+            client.table("document_chunks")
+            .select("id, document_id, chunk_index, content, documents(filename)")
+            .eq("project_id", project_id)
+            .limit(top_k)
+            .text_search("content_tsv", query, options={"type": "plain", "config": "english"})
+            .execute()
+            .data
+        )
+        for row in keyword_rows:
+            if row["id"] not in merged:
+                merged[row["id"]] = {
+                    "score": KEYWORD_MATCH_SCORE,
+                    "project_id": project_id,
+                    "document_id": row["document_id"],
+                    "chunk_id": row["id"],
+                    "chunk_index": row["chunk_index"],
+                    "filename": row["documents"]["filename"],
+                    "content": row["content"],
+                }
 
     return sorted(merged.values(), key=lambda r: r["score"], reverse=True)[:top_k]

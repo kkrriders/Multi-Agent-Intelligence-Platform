@@ -1,15 +1,17 @@
 # AI Engineering Platform
 
-A production-focused runtime and control plane for LLM applications. It
-bundles the building blocks you normally re-implement on every project —
-multi-agent orchestration, retrieval-augmented generation, memory, tool
-calling, guardrails, evaluation, observability, and cost control — behind a
-single API and web workspace.
+**A production-grade runtime for reliable LLM applications.**
 
-It is **not** a workflow builder. It is the layer you run your agents and
-prompts *on*: every request goes through the same lifecycle (guardrails →
-prompt resolution → memory recall → retrieval → orchestration → guardrails
-→ response) and every request is recorded as an inspectable, costed run.
+Every request an agent makes is a chance to hallucinate, leak PII, blow the
+budget, or silently regress. This runtime puts a fixed pipeline in front of
+every call — guardrails → prompt resolution → memory recall → retrieval →
+cache → orchestration → guardrails → persistence — so reliability isn't
+something each project re-implements: it's the layer agents and prompts run
+*on*, not a workflow builder. Retrieval, memory, tool calling, evaluation,
+observability, and cost control exist to serve that one goal, and every
+request is recorded as an inspectable, costed run so reliability is
+measured, not assumed (see [`benchmarks/`](benchmarks/) for the numbers
+behind that claim).
 
 The full design rationale and scope live in
 [`docs/superpowers/specs/`](docs/superpowers/specs/).
