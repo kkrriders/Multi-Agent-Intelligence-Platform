@@ -329,8 +329,12 @@ def test_identical_first_turn_in_same_project_hits_cache(auth_headers, qdrant_av
 
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
-    assert second["cost_usd"] == 0
-    assert second["prompt_tokens"] == 0
+    # A cache hit still pays for the pre-hook injection classifier call (real
+    # Groq spend before the cache check runs) but skips the full graph, so it
+    # must cost strictly less than the run that generated the cached output —
+    # not exactly 0, which would be under-reporting real spend.
+    assert second["cost_usd"] < first["cost_usd"]
+    assert second["prompt_tokens"] < first["prompt_tokens"]
     assert any(e["step_name"] == "cache_hit" for e in second["events"])
     assert second["output"] == first["output"]
 

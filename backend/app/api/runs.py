@@ -110,11 +110,11 @@ def _finalize_run(
         {"run_id": run_id, "step_name": "agent_responded", "payload": {"output": output}}
     ).execute()
 
-    if cache_hit:
-        drain_usage()  # a cached run records no spend even if history was summarized
-        totals = {"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0}
-    else:
-        totals = _persist_llm_usage(client, run_id)
+    # Persisted for both paths: even a cache hit still paid for the pre-hook
+    # injection classifier call (real Groq spend before the cache check runs),
+    # so cost accounting must record it rather than reporting a cache hit as free.
+    totals = _persist_llm_usage(client, run_id)
+    if not cache_hit:
         client.table("response_cache").upsert(
             {
                 "project_id": project_id,
@@ -218,20 +218,6 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         .execute()
         .data
     )
-    history, compression = prepare_history(
-        prior_runs,
-        stored_summary=conversation.get("history_summary"),
-        summary_through_run_id=conversation.get("summary_through_run_id"),
-        summarize=_summarize_history,
-    )
-    if compression and not compression["summary_reused"]:
-        client.table("conversations").update(
-            {
-                "history_summary": compression["summary"],
-                "summary_through_run_id": compression["summary_through_run_id"],
-            }
-        ).eq("id", conversation_id).execute()
-
     memories = search_memory(project_id, resolved_input)
     memory_context = [f"User: {m['input']}\nAssistant: {m['output']}" for m in memories]
 
@@ -284,21 +270,6 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
                     "count": len(chunks),
                     "top_score": chunks[0]["score"],
                     "sources": [{"filename": c["filename"], "score": c["score"]} for c in chunks],
-                },
-            }
-        ).execute()
-
-    if compression:
-        client.table("run_events").insert(
-            {
-                "run_id": run_id,
-                "step_name": "history_compressed",
-                "payload": {
-                    "turn": 0,
-                    "runs_summarized": compression["runs_summarized"],
-                    "tokens_before": compression["tokens_before"],
-                    "tokens_after": compression["tokens_after"],
-                    "summary_reused": compression["summary_reused"],
                 },
             }
         ).execute()
@@ -361,6 +332,37 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         )
         evaluate_project_alerts(client, project_id)
         return result
+
+    # Only reached on a cache miss: prepare_history() may call MODEL_CHEAP to
+    # summarize older turns (real Groq spend) — deferred past the cache check
+    # above so a hit never pays for a summary its cached output doesn't need.
+    history, compression = prepare_history(
+        prior_runs,
+        stored_summary=conversation.get("history_summary"),
+        summary_through_run_id=conversation.get("summary_through_run_id"),
+        summarize=_summarize_history,
+    )
+    if compression and not compression["summary_reused"]:
+        client.table("conversations").update(
+            {
+                "history_summary": compression["summary"],
+                "summary_through_run_id": compression["summary_through_run_id"],
+            }
+        ).eq("id", conversation_id).execute()
+    if compression:
+        client.table("run_events").insert(
+            {
+                "run_id": run_id,
+                "step_name": "history_compressed",
+                "payload": {
+                    "turn": 0,
+                    "runs_summarized": compression["runs_summarized"],
+                    "tokens_before": compression["tokens_before"],
+                    "tokens_after": compression["tokens_after"],
+                    "summary_reused": compression["summary_reused"],
+                },
+            }
+        ).execute()
 
     tool_rows = client.table("tools").select("name, type, config").eq("project_id", project_id).execute().data
     tool_specs, tool_configs = sanitize_tools(tool_rows)

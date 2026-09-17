@@ -2,6 +2,7 @@ import json
 
 from app.graph.routing import MAX_TOOL_CALLS
 from app.graph.tool_schemas import build_tool_schemas, execute_tool_call
+from app.guardrails.engine import first_pattern_hit
 from app.llm import MODEL_CHEAP, generate, set_node
 
 CONTEXT_CHARS = 500
@@ -23,24 +24,28 @@ def researcher_node(state):
         parts.append("Documents:\n" + _sources_block(state["retrieved_chunks"]))
     context = "\n\n".join(parts) or "(no external context available)"
     set_node("researcher")
-    brief = generate(
-        [
-            {
-                "role": "system",
-                "content": "Summarize only the context relevant to the user's question in 3-5 sentences. If nothing is relevant, say exactly: no relevant context.",
+    try:
+        brief = generate(
+            [
+                {
+                    "role": "system",
+                    "content": "Summarize only the context relevant to the user's question in 3-5 sentences. If nothing is relevant, say exactly: no relevant context.",
+                },
+                {"role": "user", "content": f"Question: {state['input']}\n\n{context}"},
+            ],
+            model=MODEL_CHEAP,
+        )
+        event = {
+            "step_name": "worker_researcher",
+            "payload": {
+                "turn": state["turn"],
+                "chunk_count": len(state["retrieved_chunks"]),
+                "memory_count": len(state["memory_context"]),
             },
-            {"role": "user", "content": f"Question: {state['input']}\n\n{context}"},
-        ],
-        model=MODEL_CHEAP,
-    )
-    event = {
-        "step_name": "worker_researcher",
-        "payload": {
-            "turn": state["turn"],
-            "chunk_count": len(state["retrieved_chunks"]),
-            "memory_count": len(state["memory_context"]),
-        },
-    }
+        }
+    except Exception as exc:  # noqa: BLE001 - same fail-open pattern as orchestrator_node/verifier_node: a bad Groq completion here shouldn't kill the run
+        brief = "no relevant context"
+        event = {"step_name": "worker_researcher_failed", "payload": {"turn": state["turn"], "error": str(exc)[:500]}}
     return {
         **state,
         "scratch": {**state["scratch"], "researcher": brief},
@@ -53,25 +58,40 @@ def make_tool_runner(tool_configs: dict):
     def tool_runner_node(state):
         schemas = build_tool_schemas(state["tool_specs"])
         set_node("tool_runner")
-        message = generate(
-            [
-                {
-                    "role": "system",
-                    "content": "If a tool helps answer the question, call it with correct arguments. Otherwise reply normally.",
-                },
-                {"role": "user", "content": state["input"]},
-            ],
-            tools=schemas,
-        )
-        tool_calls = list(getattr(message, "tool_calls", None) or [])
+        new_events = []
+        try:
+            message = generate(
+                [
+                    {
+                        "role": "system",
+                        "content": "If a tool helps answer the question, call it with correct arguments. Otherwise reply normally.",
+                    },
+                    {"role": "user", "content": state["input"]},
+                ],
+                tools=schemas,
+            )
+            tool_calls = list(getattr(message, "tool_calls", None) or [])
+        except Exception as exc:  # noqa: BLE001 - a malformed tool-call completion (bad Groq output) shouldn't kill the run; orchestrator_node/verifier_node already degrade the same way, this node didn't
+            tool_calls = []
+            new_events.append({"step_name": "tool_call_failed", "payload": {"turn": state["turn"], "error": str(exc)[:500]}})
         results = list(state["scratch"].get("tools", []))
         calls_made = state["tool_calls_made"]
-        new_events = []
         for tc in tool_calls:
             if calls_made >= MAX_TOOL_CALLS:
                 break
             result = execute_tool_call(tc, tool_configs)
             calls_made += 1
+            body = result.get("body")
+            if body:
+                hit = first_pattern_hit(body)
+                if hit:
+                    # a tool response is attacker-influenceable the same way a RAG
+                    # chunk is - rescan it before it re-enters the prompt as context
+                    new_events.append({
+                        "step_name": "tool_output_injection_blocked",
+                        "payload": {"turn": state["turn"], "tool": result.get("tool"), "matched": hit},
+                    })
+                    result = {**result, "body": "[REDACTED: tool response matched injection pattern]"}
             results.append(result)
             new_events.append({"step_name": "tool_called", "payload": {"turn": state["turn"], **result}})
         if not tool_calls:
@@ -110,12 +130,17 @@ def executor_node(state):
     messages += state["history"]
     messages.append({"role": "user", "content": state["input"] + tail})
     set_node("executor")
-    answer = generate(messages)
+    try:
+        answer = generate(messages)
+        event = {"step_name": "worker_executor", "payload": {"turn": state["turn"]}}
+    except Exception as exc:  # noqa: BLE001 - same fail-open pattern as orchestrator_node/verifier_node: a bad Groq completion shouldn't produce a bare 500 with no answer at all
+        answer = "I couldn't generate an answer for this request due to an internal error. Please try again."
+        event = {"step_name": "worker_executor_failed", "payload": {"turn": state["turn"], "error": str(exc)[:500]}}
     return {
         **state,
         "scratch": {**state["scratch"], "executor": answer},
         "output": answer,
-        "events": state["events"] + [{"step_name": "worker_executor", "payload": {"turn": state["turn"]}}],
+        "events": state["events"] + [event],
     }
 
 

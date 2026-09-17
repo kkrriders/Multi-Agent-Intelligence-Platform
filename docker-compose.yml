@@ -2,9 +2,25 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      # host 8010 (not 8000) so this stack can run beside AIRRA, whose backend
+      # publishes 8000. Container port stays 8000; AIRRA's Prometheus reaches it
+      # in-network as ai-backend:8000 over airra-mesh, not via the host port.
+      - "8010:8000"
+    networks:
+      default: {}
+      airra-mesh:
+        aliases:
+          - ai-backend
     env_file:
       - .env
+    environment:
+      # Chaos hook for AIRRA's integration harness (labs/integration/chaos.ps1).
+      # Empty = normal. Set to a graph-node name (orchestrator|researcher|
+      # tool_runner|executor|verifier) to force that node to raise on every run.
+      CHAOS_FAIL_NODE: ${CHAOS_FAIL_NODE:-}
+      # Empty = real Groq. Set to http://mock-llm:4000 (chaos.ps1 -Scenario
+      # llm-failure) to route every LLM call through the mock gateway instead.
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status==200 else sys.exit(1)"]
@@ -19,6 +35,18 @@ services:
     depends_on:
       qdrant:
         condition: service_started
+
+  mock-llm:
+    # Groq-compatible test double for the LLM-provider-failure chaos scenario.
+    # Source lives in the AIRRA repo (labs/integration/mock-llm) since it's part
+    # of AIRRA's integration harness, not the platform's application code.
+    build:
+      context: ${AIRRA_REPO_PATH:-../AIRRA}/labs/integration/mock-llm
+    ports:
+      - "4001:4000"   # host access for chaos.ps1's POST /mode
+    restart: unless-stopped
+    profiles:
+      - chaos   # not started by a plain `docker compose up`; see labs/integration/chaos.ps1
     # To use the in-app Deployment panel (ENABLE_DEPLOY_API=true), also mount
     # the docker socket here — off by default, it is a privileged bind:
     #   volumes:
@@ -30,9 +58,10 @@ services:
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8010}
     ports:
-      - "3000:3000"
+      # host 3002 — AIRRA's frontend publishes 3000. Container port unchanged.
+      - "3002:3000"
     env_file:
       - .env
     restart: unless-stopped
@@ -61,6 +90,15 @@ services:
       resources:
         limits:
           memory: 1g
+
+networks:
+  default: {}
+  # Cross-stack bridge to AIRRA. AIRRA's docker-compose.yml owns and creates it
+  # (network name: airra-mesh); bring AIRRA up first, then this stack.
+  # docs (AIRRA repo): docs/superpowers/specs/2026-09-10-airra-ai-platform-integration-design.md
+  airra-mesh:
+    external: true
+    name: airra-mesh
 
 volumes:
   qdrant_data:

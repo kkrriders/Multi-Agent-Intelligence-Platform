@@ -15,3 +15,13 @@ PII_PATTERNS: dict[str, re.Pattern] = {
     "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     "credit_card": re.compile(r"\b(?:\d[ -]*?){13,16}\b"),
 }
+
+# Well-known credential formats only (gitleaks-style prefix rules) - a generic
+# high-entropy-string rule would false-positive on ordinary tokens/hashes.
+SECRET_PATTERNS: dict[str, re.Pattern] = {
+    "openai_key": re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
+    "github_token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),
+    "aws_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "slack_token": re.compile(r"\bxox[baprs]-[0-9A-Za-z-]+\b"),
+    "private_key_block": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+}

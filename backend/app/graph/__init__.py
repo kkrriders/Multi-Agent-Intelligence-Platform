@@ -3,17 +3,18 @@ from langgraph.graph import END, StateGraph
 from app.graph.routing import orchestrator_node, route_edge
 from app.graph.state import AgentState
 from app.graph.workers import executor_node, make_tool_runner, researcher_node, verifier_node
+from app.metrics import instrument_node
 
 _WORKERS = ("researcher", "tool_runner", "executor", "verifier")
 
 
 def build_graph(tool_configs: dict | None = None):
     graph = StateGraph(AgentState)
-    graph.add_node("orchestrator", orchestrator_node)
-    graph.add_node("researcher", researcher_node)
-    graph.add_node("tool_runner", make_tool_runner(tool_configs or {}))
-    graph.add_node("executor", executor_node)
-    graph.add_node("verifier", verifier_node)
+    graph.add_node("orchestrator", instrument_node("orchestrator", orchestrator_node))
+    graph.add_node("researcher", instrument_node("researcher", researcher_node))
+    graph.add_node("tool_runner", instrument_node("tool_runner", make_tool_runner(tool_configs or {})))
+    graph.add_node("executor", instrument_node("executor", executor_node))
+    graph.add_node("verifier", instrument_node("verifier", verifier_node))
     graph.set_entry_point("orchestrator")
     graph.add_conditional_edges(
         "orchestrator",

@@ -1,0 +1,154 @@
+{
+  "by_mode": {
+    "vector": {
+      "recall_at_1": 0.867,
+      "recall_at_3": 0.933,
+      "recall_at_5": 1.0,
+      "mrr": 0.917,
+      "n": 15
+    },
+    "keyword": {
+      "recall_at_1": 0.467,
+      "recall_at_3": 0.467,
+      "recall_at_5": 0.467,
+      "mrr": 0.467,
+      "n": 15
+    },
+    "hybrid": {
+      "recall_at_1": 0.867,
+      "recall_at_3": 0.933,
+      "recall_at_5": 1.0,
+      "mrr": 0.917,
+      "n": 15
+    },
+    "hybrid_rerank": {
+      "recall_at_1": 0.933,
+      "recall_at_3": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 0.967,
+      "n": 15
+    }
+  },
+  "cases": [
+    {
+      "kind": "paraphrase",
+      "query": "what's the daily food budget when I'm on a business trip",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "paraphrase",
+      "query": "when do people have to leave the building",
+      "vector": 2,
+      "keyword": null,
+      "hybrid": 2,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "paraphrase",
+      "query": "money for setting up a desk at home",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "paraphrase",
+      "query": "how much paid time off do I get annually",
+      "vector": 4,
+      "keyword": null,
+      "hybrid": 4,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "paraphrase",
+      "query": "can I get a cab paid for if I stay late",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "rare_term",
+      "query": "QX-88214-B",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "rare_term",
+      "query": "INFRA-77219",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "rare_term",
+      "query": "SECRET/db/staging-v7",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "rare_term",
+      "query": "FIN-ESC-04",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "either",
+      "query": "laptop monitor first day onboarding",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "either",
+      "query": "when is the engineering all hands meeting",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "either",
+      "query": "parental leave policy duration",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "ambiguous",
+      "query": "am I eligible for the annual bonus",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 2
+    },
+    {
+      "kind": "ambiguous",
+      "query": "how do I connect from outside the office",
+      "vector": 1,
+      "keyword": 1,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    },
+    {
+      "kind": "ambiguous",
+      "query": "do I need approval for a $250 expense",
+      "vector": 1,
+      "keyword": null,
+      "hybrid": 1,
+      "hybrid_rerank": 1
+    }
+  ]
+}

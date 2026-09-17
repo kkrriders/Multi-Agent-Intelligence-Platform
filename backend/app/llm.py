@@ -3,8 +3,9 @@ from contextvars import ContextVar
 from groq import Groq
 
 from app.config import settings
+from app.metrics import groq_error_kind, llm_gateway_errors_total, service_dependency_failures_total
 
-_client = Groq(api_key=settings.groq_api_key)
+_client = Groq(api_key=settings.groq_api_key, base_url=settings.groq_base_url or "https://api.groq.com")
 
 MODEL = "openai/gpt-oss-120b"
 MODEL_CHEAP = "openai/gpt-oss-20b"
@@ -52,7 +53,13 @@ def generate(
     if response_format is not None:
         kwargs["response_format"] = response_format
 
-    response = _client.chat.completions.create(**kwargs)
+    try:
+        response = _client.chat.completions.create(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - record the gateway failure for AIRRA, then re-raise
+        node = _current_node.get()
+        llm_gateway_errors_total.labels(service=node, kind=groq_error_kind(exc)).inc()
+        service_dependency_failures_total.labels(service=node, dependency="groq").inc()
+        raise
 
     usage = getattr(response, "usage", None)
     log = _usage_log.get()

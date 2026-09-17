@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     groq_api_key: str
+    groq_base_url: str | None = None  # override for AIRRA's mock-llm chaos scenario
     qdrant_url: str = "http://qdrant:6333"
 
     # Phase 3 — Token Optimization
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"  # shared root .env also carries frontend NEXT_PUBLIC_* vars
 
 
 settings = Settings()
