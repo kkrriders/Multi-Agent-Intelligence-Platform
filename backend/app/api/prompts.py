@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row, rows
 from app.models import (
     PromptTemplateCreate,
     PromptTemplateOut,
@@ -25,7 +25,7 @@ def _latest(client, template_id: str):
 
 def _version_count(client, template_id: str) -> int:
     return len(
-        client.table("prompt_template_versions").select("id").eq("template_id", template_id).execute().data
+        rows(client.table("prompt_template_versions").select("id").eq("template_id", template_id).execute())
     )
 
 
@@ -37,14 +37,13 @@ def create_template(project_id: str, body: PromptTemplateCreate, user: dict = De
     )
     if existing:
         raise HTTPException(status_code=400, detail="A template with that name already exists")
-    template = (
-        client.table("prompt_templates").insert({"project_id": project_id, "name": body.name}).execute().data[0]
+    template = one_row(
+        client.table("prompt_templates").insert({"project_id": project_id, "name": body.name}).execute()
     )
-    version = (
+    version = one_row(
         client.table("prompt_template_versions")
         .insert({"template_id": template["id"], "version": 1, "body": body.body})
         .execute()
-        .data[0]
     )
     return {
         "id": template["id"],
@@ -60,13 +59,12 @@ def create_template(project_id: str, body: PromptTemplateCreate, user: dict = De
 @router.get("/projects/{project_id}/prompt-templates", response_model=list[PromptTemplateOut])
 def list_templates(project_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    templates = (
+    templates = rows(
         client.table("prompt_templates")
         .select("*")
         .eq("project_id", project_id)
         .order("created_at", desc=True)
         .execute()
-        .data
     )
     out = []
     for template in templates:
@@ -90,17 +88,16 @@ def list_templates(project_id: str, user: dict = Depends(get_current_user)):
 @router.get("/prompt-templates/{template_id}/versions", response_model=list[PromptTemplateVersionOut])
 def list_versions(template_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    rows = (
+    versions = rows(
         client.table("prompt_template_versions")
         .select("*")
         .eq("template_id", template_id)
         .order("version", desc=True)
         .execute()
-        .data
     )
-    if not rows:
+    if not versions:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    return [{**r, "variables": extract_variables(r["body"])} for r in rows]
+    return [{**r, "variables": extract_variables(r["body"])} for r in versions]
 
 
 @router.put("/prompt-templates/{template_id}", response_model=PromptTemplateVersionOut)
@@ -109,10 +106,9 @@ def add_version(template_id: str, body: PromptTemplateUpdate, user: dict = Depen
     latest = _latest(client, template_id)
     if not latest:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    new = (
+    new = one_row(
         client.table("prompt_template_versions")
         .insert({"template_id": template_id, "version": latest["version"] + 1, "body": body.body})
         .execute()
-        .data[0]
     )
     return {**new, "variables": extract_variables(new["body"])}

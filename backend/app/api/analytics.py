@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.analytics import aggregate_cost
 from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, rows
 
 router = APIRouter(tags=["analytics"])
 
@@ -25,15 +25,15 @@ def project_cost(project_id: str, user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).date()
     conv_ids = [
         c["id"]
-        for c in client.table("conversations").select("id").eq("project_id", project_id).execute().data
+        for c in rows(client.table("conversations").select("id").eq("project_id", project_id).execute())
     ]
     if not conv_ids:
         return aggregate_cost([], [], today)
 
-    runs = client.table("runs").select(_RUN_COLS).in_("conversation_id", conv_ids).execute().data
+    runs = rows(client.table("runs").select(_RUN_COLS).in_("conversation_id", conv_ids).execute())
     run_ids = [r["id"] for r in runs]
     calls = (
-        client.table("run_llm_calls").select(_CALL_COLS).in_("run_id", run_ids).execute().data
+        rows(client.table("run_llm_calls").select(_CALL_COLS).in_("run_id", run_ids).execute())
         if run_ids
         else []
     )

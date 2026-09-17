@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row, rows
 from app.models import GuardrailEventOut, GuardrailPolicyOut, GuardrailPolicyUpdate
 
 router = APIRouter(tags=["guardrails"])
@@ -12,8 +12,8 @@ POLICY_KINDS = ("input_constraint", "output_constraint")
 @router.get("/projects/{project_id}/guardrail-policies", response_model=list[GuardrailPolicyOut])
 def list_policies(project_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    rows = client.table("guardrail_policies").select("*").eq("project_id", project_id).execute().data
-    by_kind = {r["kind"]: r for r in rows}
+    policy_rows = rows(client.table("guardrail_policies").select("*").eq("project_id", project_id).execute())
+    by_kind = {r["kind"]: r for r in policy_rows}
     return [
         by_kind.get(kind, {"id": None, "kind": kind, "enabled": False, "config": {}, "created_at": None})
         for kind in POLICY_KINDS
@@ -35,19 +35,18 @@ def put_policy(project_id: str, kind: str, body: GuardrailPolicyUpdate, user: di
         "config": body.config if body.config is not None else (existing["config"] if existing else {}),
     }
     if existing:
-        return client.table("guardrail_policies").update(payload).eq("id", existing["id"]).execute().data[0]
-    return client.table("guardrail_policies").insert(payload).execute().data[0]
+        return one_row(client.table("guardrail_policies").update(payload).eq("id", existing["id"]).execute())
+    return one_row(client.table("guardrail_policies").insert(payload).execute())
 
 
 @router.get("/projects/{project_id}/guardrail-events", response_model=list[GuardrailEventOut])
 def list_events(project_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    return (
+    return rows(
         client.table("guardrail_events")
         .select("*")
         .eq("project_id", project_id)
         .order("created_at", desc=True)
         .limit(min(limit, 200))
         .execute()
-        .data
     )

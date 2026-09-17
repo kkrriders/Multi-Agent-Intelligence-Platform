@@ -5,6 +5,7 @@ from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 
 from app.config import settings
+from app.db import rows
 
 COLLECTION = "documents"
 BUCKET = "documents"
@@ -107,18 +108,17 @@ def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5, mode: s
             limit=top_k,
         ).points
         for hit in vector_hits:
-            if hit.score >= SCORE_THRESHOLD:
+            if hit.score >= SCORE_THRESHOLD and hit.payload:
                 merged[hit.payload["chunk_id"]] = {"score": hit.score, **hit.payload}
 
     if mode in ("hybrid", "keyword"):
-        keyword_rows = (
+        keyword_rows = rows(
             client.table("document_chunks")
             .select("id, document_id, chunk_index, content, documents(filename)")
             .eq("project_id", project_id)
             .limit(top_k)
             .text_search("content_tsv", query, options={"type": "plain", "config": "english"})
             .execute()
-            .data
         )
         for row in keyword_rows:
             if row["id"] not in merged:

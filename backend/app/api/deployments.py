@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.auth import get_current_user
 from app.config import settings
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row, rows
 from app.deploy import (
     build_argv,
     image_ref,
@@ -35,7 +35,7 @@ def _run(argv: list[str], cwd: Path | None = None) -> tuple[int, str]:
 @router.get("/deploy-targets", response_model=list[DeployTargetOut])
 def list_deploy_targets(user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    return client.table("deploy_targets").select("*").order("created_at", desc=True).execute().data
+    return rows(client.table("deploy_targets").select("*").order("created_at", desc=True).execute())
 
 
 @router.post("/deploy-targets", response_model=DeployTargetOut)
@@ -46,7 +46,7 @@ def create_deploy_target(body: DeployTargetCreate, user: dict = Depends(get_curr
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     client = get_user_client(user["token"])
-    return (
+    return one_row(
         client.table("deploy_targets")
         .insert(
             {
@@ -57,7 +57,6 @@ def create_deploy_target(body: DeployTargetCreate, user: dict = Depends(get_curr
             }
         )
         .execute()
-        .data[0]
     )
 
 
@@ -74,13 +73,12 @@ def delete_deploy_target(target_id: str, user: dict = Depends(get_current_user))
 @router.get("/deployments", response_model=list[DeploymentOut])
 def list_deployments(limit: int = 50, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    return (
+    return rows(
         client.table("deployments")
         .select("*")
         .order("created_at", desc=True)
         .limit(min(limit, 200))
         .execute()
-        .data
     )
 
 
@@ -107,11 +105,10 @@ def create_deployment(body: DeploymentCreate, user: dict = Depends(get_current_u
     git_sha = out.strip() if rc == 0 else "unknown"
     tag = image_tag(git_sha, datetime.now(timezone.utc).date())
 
-    row = (
+    row = one_row(
         client.table("deployments")
         .insert({"target_id": body.target_id, "image_tag": tag, "components": components})
         .execute()
-        .data[0]
     )
 
     log_parts: list[str] = []
@@ -129,7 +126,7 @@ def create_deployment(body: DeploymentCreate, user: dict = Depends(get_current_u
         if not ok:
             break
 
-    updated = (
+    updated = one_row(
         client.table("deployments")
         .update(
             {
@@ -140,6 +137,5 @@ def create_deployment(body: DeploymentCreate, user: dict = Depends(get_current_u
         )
         .eq("id", row["id"])
         .execute()
-        .data[0]
     )
     return updated

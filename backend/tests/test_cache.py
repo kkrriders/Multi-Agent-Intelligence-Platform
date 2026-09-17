@@ -1,6 +1,8 @@
+from typing import Any
+
 from app.cache import cache_key
 
-BASE = dict(project_id="p1", resolved_input="what is x?", chunk_ids=["a", "b"], history_len=2)
+BASE: dict[str, Any] = dict(project_id="p1", resolved_input="what is x?", chunk_ids=["a", "b"], history_len=2)
 
 
 def test_cache_key_is_sha256_hex():

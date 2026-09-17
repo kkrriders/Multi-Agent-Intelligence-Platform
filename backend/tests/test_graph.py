@@ -1,14 +1,16 @@
 import json
 import os
+from typing import cast
 
 import pytest
 
 from app.graph import agent_graph, build_graph, make_initial_state
 from app.graph.routing import orchestrator_node
+from app.graph.state import AgentState
 from app.graph.workers import executor_node, make_tool_runner, researcher_node, verifier_node
 
 
-def _state(**over):
+def _state(**over) -> AgentState:
     base = make_initial_state(
         input="What is the capital of France?",
         history=[],
@@ -16,8 +18,7 @@ def _state(**over):
         retrieved_chunks=[],
         tool_specs=[],
     )
-    base.update(over)
-    return base
+    return cast(AgentState, {**base, **over})
 
 
 # ---- orchestrator ----

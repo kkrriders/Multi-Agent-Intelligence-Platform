@@ -29,13 +29,14 @@ import os
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from app.config import settings  # noqa: E402
-from app.db import get_user_client  # noqa: E402
+from app.db import get_user_client, one_row  # noqa: E402
 from app.rag import delete_document_vectors, embed_and_store_chunks, retrieve_chunks  # noqa: E402
 
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"  # fastembed cross-encoder, already an
@@ -140,14 +141,22 @@ def _seed_pool(client, project_id: str) -> tuple[dict[str, str], list[str]]:
         if content in chunk_id_by_content:
             continue  # the rare_term/ambiguous overlap case reuses existing content verbatim
         document_id = str(uuid.uuid4())
-        doc_row = client.table("documents").insert(
-            {"id": document_id, "project_id": project_id, "filename": "benchmark.txt",
-             "mime_type": "text/plain", "storage_path": f"{project_id}/{document_id}/benchmark.txt",
-             "status": "indexed"}
-        ).execute().data[0]
-        chunk_row = client.table("document_chunks").insert(
-            {"document_id": doc_row["id"], "project_id": project_id, "chunk_index": 0, "content": content}
-        ).execute().data[0]
+        doc_row = one_row(
+            client.table("documents")
+            .insert(
+                {"id": document_id, "project_id": project_id, "filename": "benchmark.txt",
+                 "mime_type": "text/plain", "storage_path": f"{project_id}/{document_id}/benchmark.txt",
+                 "status": "indexed"}
+            )
+            .execute()
+        )
+        chunk_row = one_row(
+            client.table("document_chunks")
+            .insert(
+                {"document_id": doc_row["id"], "project_id": project_id, "chunk_index": 0, "content": content}
+            )
+            .execute()
+        )
         embed_and_store_chunks(
             project_id=project_id, document_id=doc_row["id"], filename="benchmark.txt",
             chunks=[{"chunk_id": chunk_row["id"], "chunk_index": 0, "content": content}],
@@ -181,7 +190,7 @@ def run(client, project_id: str, chunk_id_by_content: dict[str, str], reranker) 
 
     for case in EVAL_CASES:
         target_id = chunk_id_by_content[case["content"]]
-        row = {"kind": case["kind"], "query": case["query"]}
+        row: dict[str, Any] = {"kind": case["kind"], "query": case["query"]}
 
         for mode in ("vector", "keyword", "hybrid"):
             results = retrieve_chunks(client, project_id, case["query"], top_k=FETCH_DEPTH, mode=mode)
@@ -239,7 +248,7 @@ def main() -> int:
 
     token = _mint_token()
     client = get_user_client(token)
-    project = client.table("projects").insert({"name": "rag-benchmark"}).execute().data[0]
+    project = one_row(client.table("projects").insert({"name": "rag-benchmark"}).execute())
     project_id = project["id"]
 
     document_ids: list[str] = []

@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row
 from app.models import DocumentOut
 from app.rag import BUCKET, chunk_text, delete_document_vectors, embed_and_store_chunks, extract_text
 
@@ -16,18 +16,21 @@ ALLOWED_MIME_TYPES = {"text/plain", "text/markdown", "application/pdf"}
 async def upload_document(project_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=422, detail="Unsupported file type")
+    if not file.filename:
+        raise HTTPException(status_code=422, detail="Filename is required")
+    filename = file.filename
 
     client = get_user_client(user["token"])
     content = await file.read()
 
     document_id = str(uuid.uuid4())
-    storage_path = f"{project_id}/{document_id}/{file.filename}"
+    storage_path = f"{project_id}/{document_id}/{filename}"
 
     client.table("documents").insert(
         {
             "id": document_id,
             "project_id": project_id,
-            "filename": file.filename,
+            "filename": filename,
             "mime_type": file.content_type,
             "storage_path": storage_path,
             "status": "pending",
@@ -41,27 +44,32 @@ async def upload_document(project_id: str, file: UploadFile = File(...), user: d
 
         chunk_rows = []
         for index, chunk_content in enumerate(chunks):
-            row = client.table("document_chunks").insert(
-                {
-                    "document_id": document_id,
-                    "project_id": project_id,
-                    "chunk_index": index,
-                    "content": chunk_content,
-                }
-            ).execute().data[0]
+            row = one_row(
+                client.table("document_chunks")
+                .insert(
+                    {
+                        "document_id": document_id,
+                        "project_id": project_id,
+                        "chunk_index": index,
+                        "content": chunk_content,
+                    }
+                )
+                .execute()
+            )
             chunk_rows.append({"chunk_id": row["id"], "chunk_index": index, "content": chunk_content})
 
-        embed_and_store_chunks(project_id, document_id, file.filename, chunk_rows)
-        updated = client.table("documents").update({"status": "indexed"}).eq("id", document_id).execute().data[0]
+        embed_and_store_chunks(project_id, document_id, filename, chunk_rows)
+        updated = one_row(
+            client.table("documents").update({"status": "indexed"}).eq("id", document_id).execute()
+        )
     except Exception as exc:
         client.table("document_chunks").delete().eq("document_id", document_id).execute()
         delete_document_vectors(document_id)
-        updated = (
+        updated = one_row(
             client.table("documents")
             .update({"status": "failed", "error": str(exc)})
             .eq("id", document_id)
             .execute()
-            .data[0]
         )
 
     return updated

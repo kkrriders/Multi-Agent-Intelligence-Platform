@@ -1,0 +1,5 @@
+{
+  "extraPaths": ["backend"],
+  "reportOptionalSubscript": "none",
+  "reportIndexIssue": "none"
+}

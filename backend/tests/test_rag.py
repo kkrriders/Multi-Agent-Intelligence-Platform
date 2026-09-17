@@ -54,6 +54,11 @@ def test_extract_text_pdf_reads_embedded_text():
     assert extract_text("application/pdf", pdf_bytes) == ""
 
 
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
 class _EmptyKeywordClient:
     """Stubs the Postgres half of retrieve_chunks so these tests can verify
     the Qdrant vector-search half in isolation, without a live authenticated
@@ -76,10 +81,7 @@ class _EmptyKeywordClient:
         return self
 
     def execute(self):
-        class _Result:
-            data = []
-
-        return _Result()
+        return _Result([])
 
 
 def test_embed_and_store_then_retrieve_finds_vector_match(qdrant_available):
@@ -131,8 +133,8 @@ def test_retrieve_chunks_keyword_mode_skips_vector_search():
 
     class _MatchingKeywordClient(_EmptyKeywordClient):
         def execute(self):
-            class _Result:
-                data = [
+            return _Result(
+                [
                     {
                         "id": "kw-chunk",
                         "document_id": "doc-1",
@@ -141,8 +143,7 @@ def test_retrieve_chunks_keyword_mode_skips_vector_search():
                         "documents": {"filename": "kw.txt"},
                     }
                 ]
-
-            return _Result()
+            )
 
     results = retrieve_chunks(_MatchingKeywordClient(), project_id, "irrelevant to any vector", mode="keyword")
 

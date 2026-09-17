@@ -17,7 +17,7 @@ def test_project_cost_requires_auth():
     assert _client.get("/projects/some-id/cost").status_code in (401, 422)
 
 
-def _run(id, *, day, cost, cache_hit=False, status="completed", pt=100, ct=20):
+def _run(id, *, day, cost: float | None, cache_hit=False, status="completed", pt=100, ct=20):
     return {
         "id": id,
         "status": status,

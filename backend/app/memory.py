@@ -65,4 +65,4 @@ def search_memory(project_id: str, query: str, top_k: int = 3) -> list[dict]:
         ),
         limit=top_k,
     ).points
-    return [{"score": r.score, **r.payload} for r in results if r.score >= SCORE_THRESHOLD]
+    return [{"score": r.score, **(r.payload or {})} for r in results if r.score >= SCORE_THRESHOLD]

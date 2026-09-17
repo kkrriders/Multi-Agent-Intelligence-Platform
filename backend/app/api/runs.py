@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from postgrest import CountMethod
 
 from app.alerts import evaluate_project_alerts, record_rate_limit_event
 from app.auth import get_current_user
 from app.cache import cache_key
 from app.config import settings
 from app.cost import cost_for
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row, rows
 from app.graph import build_graph, make_initial_state
 from app.graph.tool_schemas import sanitize_tools
 from app.guardrails import apply_post, check_input
@@ -53,14 +54,14 @@ def _persist_llm_usage(client, run_id: str) -> dict:
     """Drain the per-run usage accumulator into run_llm_calls rows and return
     the summed {prompt_tokens, completion_tokens, cost_usd} for the run row."""
     calls = drain_usage()
-    rows = []
+    call_rows = []
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
     for c in calls:
         cost = cost_for(c["model"], c["prompt_tokens"], c["completion_tokens"])
         totals["prompt_tokens"] += c["prompt_tokens"]
         totals["completion_tokens"] += c["completion_tokens"]
         totals["cost_usd"] += cost
-        rows.append(
+        call_rows.append(
             {
                 "run_id": run_id,
                 "node": c["node"],
@@ -70,8 +71,8 @@ def _persist_llm_usage(client, run_id: str) -> dict:
                 "cost_usd": round(cost, 6),
             }
         )
-    if rows:
-        client.table("run_llm_calls").insert(rows).execute()
+    if call_rows:
+        client.table("run_llm_calls").insert(call_rows).execute()
     totals["cost_usd"] = round(totals["cost_usd"], 6)
     return totals
 
@@ -126,18 +127,17 @@ def _finalize_run(
             on_conflict="project_id,cache_key",
         ).execute()
 
-    updated = (
+    updated = one_row(
         client.table("runs")
         .update({"status": "completed", "output": output, "cache_hit": cache_hit, **totals})
         .eq("id", run_id)
         .execute()
-        .data[0]
     )
     upsert_memory(run_id, project_id, conversation_id, resolved_input, output)
 
-    events = client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute().data
-    guardrail_events = (
-        client.table("guardrail_events").select("*").eq("run_id", run_id).order("created_at").execute().data
+    events = rows(client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute())
+    guardrail_events = rows(
+        client.table("guardrail_events").select("*").eq("run_id", run_id).order("created_at").execute()
     )
     return {
         **updated,
@@ -149,13 +149,12 @@ def _finalize_run(
 
 
 def _fetch_llm_calls(client, run_id: str) -> list[dict]:
-    return (
+    return rows(
         client.table("run_llm_calls")
         .select("node, model, prompt_tokens, completion_tokens, cost_usd")
         .eq("run_id", run_id)
         .order("created_at")
         .execute()
-        .data
     )
 
 
@@ -176,7 +175,10 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
     # projects, so this COUNT is naturally per-user.
     if settings.run_rate_limit_per_min:
         since = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
-        recent = client.table("runs").select("id", count="exact").gte("created_at", since).execute().count or 0
+        recent = (
+            client.table("runs").select("id", count=CountMethod.exact).gte("created_at", since).execute().count
+            or 0
+        )
         if recent >= settings.run_rate_limit_per_min:
             record_rate_limit_event(client, project_id, settings.run_rate_limit_per_min)
             raise HTTPException(status_code=429, detail="run rate limit exceeded; retry shortly")
@@ -207,16 +209,16 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
             "variables": body.variables,
         }
     else:
+        assert body.input is not None  # guaranteed by RunCreate's exactly-one-of validator
         resolved_input = body.input
         prompt_meta = None
 
-    prior_runs = (
+    prior_runs = rows(
         client.table("runs")
         .select("id, input, output")
         .eq("conversation_id", conversation_id)
         .order("created_at")
         .execute()
-        .data
     )
     memories = search_memory(project_id, resolved_input)
     memory_context = [f"User: {m['input']}\nAssistant: {m['output']}" for m in memories]
@@ -232,14 +234,18 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         for i, chunk in enumerate(chunks)
     ]
 
-    run = client.table("runs").insert(
-        {
-            "project_id": project_id,
-            "conversation_id": conversation_id,
-            "status": "running",
-            "input": resolved_input,
-        }
-    ).execute().data[0]
+    run = one_row(
+        client.table("runs")
+        .insert(
+            {
+                "project_id": project_id,
+                "conversation_id": conversation_id,
+                "status": "running",
+                "input": resolved_input,
+            }
+        )
+        .execute()
+    )
     run_id = run["id"]
 
     client.table("run_events").insert(
@@ -274,12 +280,11 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
             }
         ).execute()
 
-    policy_rows = (
+    policy_rows = rows(
         client.table("guardrail_policies")
         .select("kind, enabled, config")
         .eq("project_id", project_id)
         .execute()
-        .data
     )
     policies = {r["kind"]: {"enabled": r["enabled"], "config": r["config"]} for r in policy_rows}
 
@@ -364,7 +369,7 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
             }
         ).execute()
 
-    tool_rows = client.table("tools").select("name, type, config").eq("project_id", project_id).execute().data
+    tool_rows = rows(client.table("tools").select("name, type, config").eq("project_id", project_id).execute())
     tool_specs, tool_configs = sanitize_tools(tool_rows)
 
     graph = build_graph(tool_configs)
@@ -416,7 +421,7 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
     run = fetch_maybe_one(client.table("runs").select("*").eq("id", run_id))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    events = client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute().data
+    events = rows(client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute())
     return {**run, "events": events, "llm_calls": _fetch_llm_calls(client, run_id)}
 
 
@@ -429,27 +434,26 @@ def list_project_runs(project_id: str, limit: int = 50, user: dict = Depends(get
 
     conv_ids = [
         c["id"]
-        for c in client.table("conversations").select("id").eq("project_id", project_id).execute().data
+        for c in rows(client.table("conversations").select("id").eq("project_id", project_id).execute())
     ]
     if not conv_ids:
         return []
 
-    runs = (
+    project_runs = rows(
         client.table("runs")
         .select("*")
         .in_("conversation_id", conv_ids)
         .order("created_at", desc=True)
         .limit(min(limit, 200))
         .execute()
-        .data
     )
-    run_ids = [r["id"] for r in runs]
+    run_ids = [r["id"] for r in project_runs]
     if not run_ids:
         return []
 
-    events = client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute().data
-    guardrails = (
-        client.table("guardrail_events").select("*").in_("run_id", run_ids).order("created_at").execute().data
+    events = rows(client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute())
+    guardrails = rows(
+        client.table("guardrail_events").select("*").in_("run_id", run_ids).order("created_at").execute()
     )
     events_by_run: dict[str, list] = {}
     for event in events:
@@ -465,28 +469,27 @@ def list_project_runs(project_id: str, limit: int = 50, user: dict = Depends(get
             "guardrails": guards_by_run.get(run["id"], []),
             "citations": [],
         }
-        for run in runs
+        for run in project_runs
     ]
 
 
 @router.get("/conversations/{conversation_id}/runs", response_model=list[RunOut])
 def list_conversation_runs(conversation_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    runs = (
+    conversation_runs = rows(
         client.table("runs")
         .select("*")
         .eq("conversation_id", conversation_id)
         .order("created_at")
         .execute()
-        .data
     )
-    run_ids = [r["id"] for r in runs]
+    run_ids = [r["id"] for r in conversation_runs]
     events = (
-        client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute().data
+        rows(client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute())
         if run_ids
         else []
     )
     events_by_run: dict[str, list] = {}
     for event in events:
         events_by_run.setdefault(event["run_id"], []).append(event)
-    return [{**run, "events": events_by_run.get(run["id"], [])} for run in runs]
+    return [{**run, "events": events_by_run.get(run["id"], [])} for run in conversation_runs]

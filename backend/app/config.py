@@ -24,4 +24,4 @@ class Settings(BaseSettings):
         extra = "ignore"  # shared root .env also carries frontend NEXT_PUBLIC_* vars
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue] — required fields come from env/.env at runtime

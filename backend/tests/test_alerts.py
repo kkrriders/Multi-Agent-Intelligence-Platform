@@ -35,7 +35,7 @@ def test_alert_rule_create_validates_kind_and_threshold():
 TODAY = date(2026, 8, 30)
 
 
-def _run(status="completed", *, day=30, cost=0.01):
+def _run(status="completed", *, day=30, cost: float | None = 0.01):
     return {
         "id": f"r{day}-{status}",
         "status": status,

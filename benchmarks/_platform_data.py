@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from app.db import get_user_client  # noqa: E402
+from app.db import get_user_client, rows  # noqa: E402
 
 _RUN_COLS = "id, project_id, conversation_id, status, created_at, cache_hit, prompt_tokens, completion_tokens, cost_usd"
 _CALL_COLS = "run_id, node, model, prompt_tokens, completion_tokens, cost_usd"
@@ -33,37 +33,37 @@ def get_token() -> str:
 def fetch_all(client) -> dict:
     """All runs/run_llm_calls/run_events/guardrail_events across every project
     this user can see (RLS-scoped) — not just one hardcoded project."""
-    project_ids = [p["id"] for p in client.table("projects").select("id").execute().data]
+    project_ids = [p["id"] for p in rows(client.table("projects").select("id").execute())]
     conv_ids: list[str] = []
     for pid in project_ids:
         conv_ids += [
             c["id"]
-            for c in client.table("conversations").select("id").eq("project_id", pid).execute().data
+            for c in rows(client.table("conversations").select("id").eq("project_id", pid).execute())
         ]
 
-    runs = (
-        client.table("runs").select(_RUN_COLS).in_("conversation_id", conv_ids).execute().data
+    all_runs = (
+        rows(client.table("runs").select(_RUN_COLS).in_("conversation_id", conv_ids).execute())
         if conv_ids
         else []
     )
-    run_ids = [r["id"] for r in runs]
+    run_ids = [r["id"] for r in all_runs]
 
     calls = (
-        client.table("run_llm_calls").select(_CALL_COLS).in_("run_id", run_ids).execute().data
+        rows(client.table("run_llm_calls").select(_CALL_COLS).in_("run_id", run_ids).execute())
         if run_ids
         else []
     )
     events = (
-        client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute().data
+        rows(client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute())
         if run_ids
         else []
     )
     guardrails = (
-        client.table("guardrail_events").select("*").in_("run_id", run_ids).order("created_at").execute().data
+        rows(client.table("guardrail_events").select("*").in_("run_id", run_ids).order("created_at").execute())
         if run_ids
         else []
     )
-    return {"projects": project_ids, "runs": runs, "calls": calls, "events": events, "guardrails": guardrails}
+    return {"projects": project_ids, "runs": all_runs, "calls": calls, "events": events, "guardrails": guardrails}
 
 
 def load() -> dict:

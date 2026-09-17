@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import fetch_maybe_one, get_user_client, one_row, rows
 from app.evals import MAX_ITEMS, aggregate, judge_item
 from app.llm import generate
 from app.models import (
@@ -18,13 +18,12 @@ _ANSWER_SYSTEM = "Answer the question concisely and factually."
 
 
 def _items(client, dataset_id: str):
-    return (
+    return rows(
         client.table("eval_items")
         .select("*")
         .eq("dataset_id", dataset_id)
         .order("created_at")
         .execute()
-        .data
     )
 
 
@@ -48,14 +47,13 @@ def create_dataset(project_id: str, body: EvalDatasetCreate, user: dict = Depend
     ):
         raise HTTPException(status_code=400, detail="A dataset with that name already exists")
 
-    dataset = (
-        client.table("eval_datasets").insert({"project_id": project_id, "name": body.name}).execute().data[0]
+    dataset = one_row(
+        client.table("eval_datasets").insert({"project_id": project_id, "name": body.name}).execute()
     )
-    items = (
+    items = rows(
         client.table("eval_items")
         .insert([{"dataset_id": dataset["id"], "input": it.input, "expected": it.expected} for it in body.items])
         .execute()
-        .data
     )
     return {
         "id": dataset["id"],
@@ -70,13 +68,12 @@ def create_dataset(project_id: str, body: EvalDatasetCreate, user: dict = Depend
 @router.get("/projects/{project_id}/eval-datasets", response_model=list[EvalDatasetOut])
 def list_datasets(project_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    datasets = (
+    datasets = rows(
         client.table("eval_datasets")
         .select("*")
         .eq("project_id", project_id)
         .order("created_at", desc=True)
         .execute()
-        .data
     )
     return [
         {
@@ -126,13 +123,12 @@ def run_dataset(dataset_id: str, user: dict = Depends(get_current_user)):
         scored.append({"item_id": item["id"], "output": output, **verdict})
 
     summary = aggregate(scored)
-    run = (
+    run = one_row(
         client.table("eval_runs")
         .insert({"dataset_id": dataset_id, "item_count": len(items), **summary})
         .execute()
-        .data[0]
     )
-    results = (
+    results = rows(
         client.table("eval_results")
         .insert(
             [
@@ -148,7 +144,6 @@ def run_dataset(dataset_id: str, user: dict = Depends(get_current_user)):
             ]
         )
         .execute()
-        .data
     )
     return {**run, "results": results}
 
@@ -156,11 +151,10 @@ def run_dataset(dataset_id: str, user: dict = Depends(get_current_user)):
 @router.get("/eval-datasets/{dataset_id}/runs", response_model=list[EvalRunSummary])
 def list_runs(dataset_id: str, user: dict = Depends(get_current_user)):
     client = get_user_client(user["token"])
-    return (
+    return rows(
         client.table("eval_runs")
         .select("*")
         .eq("dataset_id", dataset_id)
         .order("created_at", desc=True)
         .execute()
-        .data
     )

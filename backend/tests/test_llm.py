@@ -52,6 +52,7 @@ class _FakeChoice:
 class _FakeCompletion:
     def __init__(self):
         self.choices = [_FakeChoice()]
+        self.usage: _Usage | None = None
 
 
 def test_generate_without_tools_returns_content_string(monkeypatch):
