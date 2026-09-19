@@ -38,6 +38,7 @@ def test_orchestrator_increments_turn_and_records_decision(monkeypatch):
 
 def test_orchestrator_unparseable_json_falls_back_to_skeleton(monkeypatch):
     monkeypatch.setattr("app.graph.routing.generate", lambda *a, **k: "not json at all")
+    monkeypatch.setattr("app.graph.routing._jev_route", lambda *a, **k: None)
     out = orchestrator_node(_state(turn=0))
     assert out["route"] == "researcher"
 
@@ -48,8 +49,17 @@ def _raise(*a, **k):
 
 def test_orchestrator_generate_error_falls_back_to_skeleton(monkeypatch):
     monkeypatch.setattr("app.graph.routing.generate", _raise)
+    monkeypatch.setattr("app.graph.routing._jev_route", lambda *a, **k: None)
     out = orchestrator_node(_state(turn=0))
     assert out["route"] == "researcher"
+
+
+def test_orchestrator_generate_error_uses_jev_backup_when_available(monkeypatch):
+    monkeypatch.setattr("app.graph.routing.generate", _raise)
+    monkeypatch.setattr("app.graph.routing._jev_route", lambda *a, **k: "tool_runner")
+    out = orchestrator_node(_state(turn=0, tool_specs=[{"name": "W"}]))
+    assert out["route"] == "tool_runner"
+    assert out["events"][-1]["payload"]["llm_choice"] == "tool_runner"
 
 
 def test_verifier_generate_error_passes_answer_through(monkeypatch):

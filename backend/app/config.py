@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     supabase_anon_key: str
     groq_api_key: str
     groq_base_url: str | None = None  # override for AIRRA's mock-llm chaos scenario
+    openrouter_api_key: str | None = None  # optional: orchestrator routing backup, see app/graph/routing.py
     qdrant_url: str = "http://qdrant:6333"
 
     # Phase 3 — Token Optimization
