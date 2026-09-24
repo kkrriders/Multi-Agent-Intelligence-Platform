@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient'
+import { getToken } from './auth'
 
 export type Project = { id: string; name: string; created_at: string }
 export type RunEvent = { id: string; step_name: string; payload: Record<string, unknown>; created_at: string }
@@ -72,8 +72,7 @@ export type ProjectCost = {
 const API_URL = process.env.NEXT_PUBLIC_API_URL!
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession()
-  return { Authorization: `Bearer ${data.session?.access_token}` }
+  return { Authorization: `Bearer ${getToken()}` }
 }
 
 export async function createProject(name: string): Promise<Project> {

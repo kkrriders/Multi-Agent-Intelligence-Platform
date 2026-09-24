@@ -6,6 +6,7 @@ from prometheus_client import make_asgi_app
 
 from app.api import (
     alerts,
+    auth_routes,
     analytics,
     conversations,
     deployments,
@@ -24,7 +25,7 @@ app = FastAPI(title="AI Engineering Platform API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3002"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +49,7 @@ async def _record_api_request_metrics(request: Request, call_next):
     return response
 
 app.include_router(alerts.router)
+app.include_router(auth_routes.router)
 app.include_router(analytics.router)
 app.include_router(conversations.router)
 app.include_router(deployments.router)

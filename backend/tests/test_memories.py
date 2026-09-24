@@ -1,8 +1,8 @@
 import os
 import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -18,9 +18,8 @@ def test_search_memory_requires_auth():
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_search_finds_earlier_turn_across_conversations(auth_headers, qdrant_available):
     project_response = client.post("/projects", json={"name": "Search Test Project"}, headers=auth_headers)
@@ -48,10 +47,6 @@ def test_search_finds_earlier_turn_across_conversations(auth_headers, qdrant_ava
     assert all(r["project_id"] == project_id for r in results)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required for this integration test",
-)
 def test_search_memory_requires_project_ownership(auth_headers):
     response = client.get(
         "/projects/00000000-0000-0000-0000-000000000000/memories/search",

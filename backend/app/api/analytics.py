@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import Connection, text
 
 from app.analytics import aggregate_cost
-from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client, rows
+from app.db import get_db, maybe_one, rows
 
 router = APIRouter(tags=["analytics"])
 
@@ -13,27 +13,37 @@ _CALL_COLS = "run_id, node, model, prompt_tokens, completion_tokens, cost_usd"
 
 
 @router.get("/projects/{project_id}/cost")
-def project_cost(project_id: str, user: dict = Depends(get_current_user)):
+def project_cost(project_id: str, conn: Connection = Depends(get_db)):
     """Cost/token rollup for a project: totals, per-model, a 30-day daily
     series, and recent-run rows. Pure aggregation over runs + run_llm_calls
     (no response_model — the shape is covered by test_analytics.py)."""
-    client = get_user_client(user["token"])
-    project = fetch_maybe_one(client.table("projects").select("id").eq("id", project_id))
+    project = maybe_one(conn.execute(text("select id from projects where id = :i"), {"i": project_id}))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     today = datetime.now(timezone.utc).date()
     conv_ids = [
         c["id"]
-        for c in rows(client.table("conversations").select("id").eq("project_id", project_id).execute())
+        for c in rows(conn.execute(text("select id from conversations where project_id = :p"), {"p": project_id}))
     ]
     if not conv_ids:
         return aggregate_cost([], [], today)
 
-    runs = rows(client.table("runs").select(_RUN_COLS).in_("conversation_id", conv_ids).execute())
+    # _RUN_COLS / _CALL_COLS are module constants, never request data.
+    runs = rows(
+        conn.execute(
+            text(f"select {_RUN_COLS} from runs where conversation_id = any(cast(:ids as uuid[]))"),
+            {"ids": conv_ids},
+        )
+    )
     run_ids = [r["id"] for r in runs]
     calls = (
-        rows(client.table("run_llm_calls").select(_CALL_COLS).in_("run_id", run_ids).execute())
+        rows(
+            conn.execute(
+                text(f"select {_CALL_COLS} from run_llm_calls where run_id = any(cast(:ids as uuid[]))"),
+                {"ids": run_ids},
+            )
+        )
         if run_ids
         else []
     )

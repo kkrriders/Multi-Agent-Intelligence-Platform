@@ -1,12 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-vi.mock('./supabaseClient', () => ({
-  supabase: {
-    auth: {
-      getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: 'test-token' } } }),
-    },
-  },
-}))
+vi.mock('./auth', () => ({ getToken: () => 'test-token' }))
 
 describe('api client', () => {
   beforeEach(() => {

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { supabase } from '@/lib/supabaseClient'
+import { authenticate } from '@/lib/auth'
 
 type Props = {
   mode: 'login' | 'signup'
@@ -18,12 +18,10 @@ export default function AuthForm({ mode, onSuccess }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    const { error } = mode === 'login'
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password })
+    const { error } = await authenticate(mode, email, password)
 
     if (error) {
-      setError(error.message)
+      setError(error)
       return
     }
     onSuccess()

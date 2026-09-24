@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -13,11 +13,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
-
-_NEEDS_SUPABASE = pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required for this integration test",
-)
 
 
 def test_deploy_routes_require_auth():
@@ -27,7 +22,6 @@ def test_deploy_routes_require_auth():
     assert client.post("/deployments", json={"target_id": "t"}).status_code in (401, 422)
 
 
-@_NEEDS_SUPABASE
 def test_deploy_target_crud_and_owner_isolation(auth_headers):
     created = client.post(
         "/deploy-targets",
@@ -49,7 +43,6 @@ def test_deploy_target_crud_and_owner_isolation(auth_headers):
     assert not any(t["id"] == tid for t in client.get("/deploy-targets", headers=auth_headers).json())
 
 
-@_NEEDS_SUPABASE
 def test_post_deployments_503_when_api_disabled(auth_headers):
     # ENABLE_DEPLOY_API defaults to False
     tid = client.post(

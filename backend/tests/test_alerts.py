@@ -1,13 +1,15 @@
 import os
 from datetime import date
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.alerts import daily_spend, error_rate, observed_for, p95_latency_ms
+from app.db import one, rows
 from app.main import app
 
 _c = TestClient(app)
@@ -84,95 +86,106 @@ def test_observed_for_dispatches_by_kind():
     assert observed_for("daily_spend", runs, {}, TODAY) == 0.02
 
 
-# ---- evaluate_project_alerts with a fake Supabase client ----
+# ---- evaluate_project_alerts against real Postgres ----
 
 
-class _FakeTable:
-    def __init__(self, store, name):
-        self.store, self.name, self._rows = store, name, list(store.get(name, []))
-
-    def select(self, *a, **k):
-        return self
-
-    def eq(self, col, val):
-        self._rows = [r for r in self._rows if r.get(col) == val]
-        return self
-
-    def order(self, *a, **k):
-        return self
-
-    def limit(self, *a, **k):
-        return self
-
-    def in_(self, col, vals):
-        self._rows = [r for r in self._rows if r.get(col) in vals]
-        return self
-
-    def execute(self):
-        return type("R", (), {"data": self._rows, "count": len(self._rows)})()
-
-    def insert(self, row):
-        self.store.setdefault(self.name, []).append(row)
-        return type("I", (), {"execute": lambda self=None: None})()
+def _seed_project(conn, *, kind, threshold, window_n, webhook_url, run_statuses):
+    project = one(conn.execute(text("insert into projects (name) values ('alerts') returning *")))
+    conv = one(
+        conn.execute(
+            text("insert into conversations (project_id) values (:p) returning id"), {"p": project["id"]}
+        )
+    )
+    conn.execute(
+        text(
+            "insert into alert_rules (project_id, kind, threshold, window_n, webhook_url) "
+            "values (:p, :k, :t, :w, :u)"
+        ),
+        {"p": project["id"], "k": kind, "t": threshold, "w": window_n, "u": webhook_url},
+    )
+    for i, status in enumerate(run_statuses):
+        conn.execute(
+            text(
+                "insert into runs (project_id, conversation_id, status, input, cost_usd, created_at) "
+                "values (:p, :c, :s, 'q', 0, now() - make_interval(secs => :age))"
+            ),
+            {"p": project["id"], "c": conv["id"], "s": status, "age": i * 60},
+        )
+    return project["id"]
 
 
-class _FakeClient:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _FakeTable(self.store, name)
+def _alert_events(conn, project_id):
+    return rows(conn.execute(text("select * from alert_events where project_id = :p"), {"p": project_id}))
 
 
-def test_evaluate_writes_event_and_fires_webhook_on_breach(monkeypatch):
+def test_evaluate_writes_event_and_fires_webhook_on_breach(monkeypatch, user_db):
     from app import alerts
 
+    _, conn = user_db
     posted = []
     monkeypatch.setattr(alerts.httpx, "post", lambda url, **k: posted.append((url, k)))
+    pid = _seed_project(
+        conn, kind="error_rate", threshold=0.0, window_n=2,
+        webhook_url="https://hook.example/x", run_statuses=["failed", "completed"],
+    )
 
-    store = {
-        "alert_rules": [
-            {"id": "rule1", "project_id": "p1", "kind": "error_rate", "threshold": 0.0,
-             "window_n": 2, "webhook_url": "https://hook.example/x", "enabled": True}
-        ],
-        "runs": [
-            {"id": "a", "project_id": "p1", "status": "failed", "created_at": "2026-08-30T12:00:00+00:00", "cost_usd": 0},
-            {"id": "b", "project_id": "p1", "status": "completed", "created_at": "2026-08-30T11:00:00+00:00", "cost_usd": 0},
-        ],
-    }
-    alerts.evaluate_project_alerts(_FakeClient(store), "p1", today=date(2026, 8, 30))
+    alerts.evaluate_project_alerts(conn, pid)
 
-    events = store.get("alert_events", [])
+    events = _alert_events(conn, pid)
     assert len(events) == 1
     assert events[0]["kind"] == "error_rate" and events[0]["observed"] == 0.5
     assert posted and posted[0][0] == "https://hook.example/x"
 
 
-def test_evaluate_is_fail_open_when_webhook_raises(monkeypatch):
+def test_evaluate_is_fail_open_when_webhook_raises(monkeypatch, user_db):
     from app import alerts
+
+    _, conn = user_db
 
     def boom(*a, **k):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(alerts.httpx, "post", boom)
-    store = {
-        "alert_rules": [
-            {"id": "r", "project_id": "p1", "kind": "error_rate", "threshold": 0.0,
-             "window_n": 1, "webhook_url": "https://hook.example/x", "enabled": True}
-        ],
-        "runs": [
-            {"id": "a", "project_id": "p1", "status": "blocked", "created_at": "2026-08-30T12:00:00+00:00", "cost_usd": 0}
-        ],
-    }
-    # must not raise
-    alerts.evaluate_project_alerts(_FakeClient(store), "p1", today=date(2026, 8, 30))
-    assert len(store.get("alert_events", [])) == 1
+    pid = _seed_project(
+        conn, kind="error_rate", threshold=0.0, window_n=1,
+        webhook_url="https://hook.example/x", run_statuses=["blocked"],
+    )
+
+    alerts.evaluate_project_alerts(conn, pid)  # must not raise
+
+    assert len(_alert_events(conn, pid)) == 1
 
 
-def test_evaluate_no_rules_is_a_noop():
+def test_evaluate_no_rules_is_a_noop(user_db):
     from app import alerts
 
-    store = {"runs": [{"id": "a", "project_id": "p1", "status": "failed",
-                       "created_at": "2026-08-30T12:00:00+00:00", "cost_usd": 0}]}
-    alerts.evaluate_project_alerts(_FakeClient(store), "p1", today=date(2026, 8, 30))
-    assert "alert_events" not in store
+    _, conn = user_db
+    project = one(conn.execute(text("insert into projects (name) values ('no rules') returning *")))
+    conv = one(
+        conn.execute(
+            text("insert into conversations (project_id) values (:p) returning id"), {"p": project["id"]}
+        )
+    )
+    conn.execute(
+        text(
+            "insert into runs (project_id, conversation_id, status, input, cost_usd) "
+            "values (:p, :c, 'failed', 'q', 0)"
+        ),
+        {"p": project["id"], "c": conv["id"]},
+    )
+
+    alerts.evaluate_project_alerts(conn, project["id"])
+
+    assert _alert_events(conn, project["id"]) == []
+
+
+def test_record_rate_limit_event_writes_row(user_db):
+    from app import alerts
+
+    _, conn = user_db
+    project = one(conn.execute(text("insert into projects (name) values ('rl') returning *")))
+
+    alerts.record_rate_limit_event(conn, project["id"], 20)
+
+    events = _alert_events(conn, project["id"])
+    assert len(events) == 1 and events[0]["kind"] == "rate_limit" and events[0]["detail"]["limit"] == 20

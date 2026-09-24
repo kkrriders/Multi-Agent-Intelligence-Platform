@@ -34,7 +34,7 @@ type Props = {
 
 export default function WorkspaceNav({ active, onSelect }: Props) {
   return (
-    <nav className="punch-corner-lg card-stack-shadow flex w-56 shrink-0 flex-col gap-1 self-start border border-border bg-card p-3">
+    <nav className="punch-corner-lg card-stack-shadow flex w-full shrink-0 sm:w-56 lg:w-64 flex-col gap-1 self-start border border-border bg-card p-3">
       {TABS.map((tab) => (
         <button
           key={tab.id}

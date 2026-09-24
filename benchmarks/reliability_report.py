@@ -1,8 +1,8 @@
 """Reliability report — request/dependency/LLM-gateway error rates.
 
 Two data sources, both already existing, no new instrumentation:
-- app.alerts.error_rate / daily_spend (over Supabase `runs` rows) — needs
-  SUPABASE_TEST_USER_TOKEN, see benchmarks/_platform_data.py.
+- app.alerts.error_rate / daily_spend (over Postgres `runs` rows) — needs
+  a reachable Postgres (DATABASE_URL), see benchmarks/_platform_data.py.
 - service_dependency_failures_total / llm_gateway_errors_total Prometheus
   counters, scraped directly from the running backend's /metrics (no auth).
 

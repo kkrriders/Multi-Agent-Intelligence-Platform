@@ -95,7 +95,7 @@ export default function ProjectWorkspace({ projectId }: { projectId: string }) {
       <div className="min-w-0 flex-1">
         <header className="mb-6">
           <h1 className="font-heading text-2xl font-bold uppercase">{panel.title}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{panel.subtitle}</p>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{panel.subtitle}</p>
         </header>
         {panel.render(projectId)}
       </div>

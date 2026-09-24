@@ -23,7 +23,7 @@ export default function ProjectList({ projects, onCreate }: Props) {
           description="A project is one AI application: its documents, tools, prompt templates, guardrail policy, and every run it has made. Create one below, then open it to configure the pipeline and send a first run from the Playground."
         />
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map((project) => (
             <li key={project.id}>
               <Link

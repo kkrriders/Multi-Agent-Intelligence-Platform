@@ -1,7 +1,7 @@
 """Cost / token efficiency report — aggregates existing runs + run_llm_calls
 data via app.analytics.aggregate_cost (no new instrumentation).
 
-Needs SUPABASE_TEST_USER_TOKEN — see benchmarks/_platform_data.py.
+Needs the local Postgres (DATABASE_URL) — see benchmarks/_platform_data.py.
 
     python benchmarks/cost_report.py
     python benchmarks/cost_report.py --json out.json

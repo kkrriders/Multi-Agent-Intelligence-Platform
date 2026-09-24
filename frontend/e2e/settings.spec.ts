@@ -21,7 +21,7 @@ test('a daily_spend alert rule accrues an alert-history row after a run', async 
   await expect(page.getByText(/daily spend/i).first()).toBeVisible()
 
   // one real run -> non-zero cost -> breach
-  await page.getByRole('button', { name: /chat \/ run/i }).click()
+  await page.getByRole('button', { name: /playground/i }).click()
   await page.getByLabel(/message/i).fill('Give me a one-sentence answer: is water wet?')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled({ timeout: 90_000 })

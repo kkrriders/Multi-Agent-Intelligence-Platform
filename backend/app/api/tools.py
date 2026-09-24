@@ -1,8 +1,10 @@
+import json
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import Connection, text
 
-from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client
+from app.db import get_db, maybe_one, one, rows
 from app.models import ToolCreate, ToolInvokeResult, ToolOut
 from app.tools.rest_adapter import ToolConfigError
 from app.tools.rest_adapter import invoke as rest_invoke
@@ -13,35 +15,37 @@ ADAPTERS = {"rest": rest_invoke}
 
 
 @router.post("/projects/{project_id}/tools", response_model=ToolOut)
-def create_tool(project_id: str, body: ToolCreate, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    result = client.table("tools").insert({
-        "project_id": project_id,
-        "name": body.name,
-        "type": body.type,
-        "config": body.config,
-        "permissions": body.permissions,
-    }).execute()
-    return result.data[0]
+def create_tool(project_id: str, body: ToolCreate, conn: Connection = Depends(get_db)):
+    return one(
+        conn.execute(
+            text(
+                "insert into tools (project_id, name, type, config, permissions) "
+                "values (:p, :n, :t, cast(:c as jsonb), cast(:perm as jsonb)) returning *"
+            ),
+            {
+                "p": project_id,
+                "n": body.name,
+                "t": body.type,
+                "c": json.dumps(body.config),
+                "perm": json.dumps(body.permissions),
+            },
+        )
+    )
 
 
 @router.get("/projects/{project_id}/tools", response_model=list[ToolOut])
-def list_tools(project_id: str, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    result = (
-        client.table("tools")
-        .select("*")
-        .eq("project_id", project_id)
-        .order("created_at", desc=True)
-        .execute()
+def list_tools(project_id: str, conn: Connection = Depends(get_db)):
+    return rows(
+        conn.execute(
+            text("select * from tools where project_id = :p order by created_at desc"),
+            {"p": project_id},
+        )
     )
-    return result.data
 
 
 @router.post("/tools/{tool_id}/invoke", response_model=ToolInvokeResult)
-def invoke_tool(tool_id: str, input: dict, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    tool = fetch_maybe_one(client.table("tools").select("*").eq("id", tool_id))
+def invoke_tool(tool_id: str, input: dict, conn: Connection = Depends(get_db)):
+    tool = maybe_one(conn.execute(text("select * from tools where id = :i"), {"i": tool_id}))
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
 

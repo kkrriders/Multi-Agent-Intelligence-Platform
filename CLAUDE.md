@@ -29,7 +29,7 @@ Capabilities in the codebase today:
   model never sets the URL or headers).
 - **RAG** — document upload → chunk → embed → Qdrant; hybrid
   (vector + keyword) retrieval with citations. Source files live in a
-  private Supabase Storage bucket (`documents`) with owner-scoped RLS.
+  Docker volume (`DOCUMENT_STORAGE_DIR`); document rows are RLS-scoped.
 - **Memory** — per-conversation history plus semantic recall from Qdrant.
 - **Guardrails** — `app/guardrails/`: heuristic + one Groq-classifier
   injection check (pre-hook, blocks with HTTP 422 and no graph spend) and
@@ -62,13 +62,16 @@ Capabilities in the codebase today:
   classification-shaped calls — both are Groq models. Do **not** add a
   provider-abstraction interface unless a second provider is actually being
   wired in.
-- DB + Auth: Supabase (Postgres + Supabase Auth). No custom
-  auth/permission system — Row Level Security is the entire permissions
-  story.
+- DB + Auth: Postgres 16 in Docker Compose (the hosted Supabase project was
+  paused; see `docs/superpowers/specs/2026-09-24-local-postgres-replaces-supabase-design.md`).
+  Auth is `/auth/signup` + `/auth/login` issuing HS256 JWTs. There is still
+  no application-level permission code — Row Level Security is the entire
+  permissions story (`auth.uid()` reads the per-request `app.user_id`; the
+  app connects as the non-owner `maip_app` role).
 - Vector store: Qdrant, self-hosted via Docker.
 - Frontend: Next.js (App Router), shadcn/ui, Tailwind.
-- Deployment: Docker Compose (backend, frontend, Qdrant); Supabase is
-  hosted, not in compose.
+- Deployment: Docker Compose (backend, frontend, Qdrant); Postgres is a
+  compose service (host port 5433).
 
 ## Strict Practices for This Repo
 
@@ -79,10 +82,10 @@ rules:
    phase boundaries before adding any capability; don't scaffold future
    work "since we're in there anyway."
 2. **No wrapper layers around the four core dependencies** (LangGraph,
-   Supabase client, Qdrant client, Groq client) unless a second concrete
+   SQLAlchemy engine, Qdrant client, Groq client) unless a second concrete
    consumer of the abstraction already exists in the code.
 3. **Exit criteria in the spec are the acceptance test.** Integration
-   tests run against real Groq / Supabase / Qdrant — never mock those
+   tests run against real Groq / Postgres / Qdrant — never mock those
    three. Pure-logic unit tests may use fixtures.
 4. **Never back a panel with fake or hardcoded data.**
 5. **`context compression` has two distinct owners — keep them separate:**
@@ -91,10 +94,14 @@ rules:
 
 ## Operational Notes
 
-- **Migrations** (`backend/migrations/0001…0010`) are applied by hand in
-  the Supabase SQL editor. All are currently applied. A new migration is
-  not live until that manual step is done.
-- Supabase Auth email confirmation is disabled for test signups.
+- **Migrations** (`backend/migrations/0001…0010`) are applied automatically
+  by `backend/db/init.sh` on the first boot of an empty `postgres_data`
+  volume (after `backend/db/00_local_shim.sql`, which provides `auth.users`,
+  `auth.uid()` and stub `storage` objects). A new migration is **not** live
+  on an existing volume until you `psql -f` it as `postgres` (or reset with
+  `docker compose down -v postgres`, which deletes all data). Never change
+  the shim's `auth.uid()` contract: RLS depends on it.
+- There is no email confirmation or password reset: `/auth/signup` logs the user in immediately.
 - Qdrant is pinned to `qdrant/qdrant:v1.19.0` in `docker-compose.yml`.
   **Do not downgrade below the version that last wrote `qdrant_data`** — it
   panics on the older on-disk collection format.
@@ -104,12 +111,12 @@ rules:
   `$HOME` so fastembed / `huggingface_hub` can cache the embedding model.
 - `playwright.config.ts` pins `workers: 1`. Specs pass individually and in
   small batches; running all of them back-to-back can transiently flake on
-  the single shared Supabase project (concurrent-signup contention) — this
-  is environmental, not a product bug.
+  the one backend's per-IP `/auth/signup` throttle (10/min) — this is
+  environmental, not a product bug.
 - `.github/workflows/ci.yml` runs on every push/PR: frontend (`eslint`,
   `tsc`, `vitest`, `next build`) and backend (`ruff check app`, `pytest`
-  with dummy Supabase/Groq env — the 35 real-service integration tests
-  skip themselves). Keep both green.
+  against a Postgres service container — the Groq/Qdrant-gated integration
+  tests skip themselves). Keep both green.
 
 ## Commands
 
@@ -120,18 +127,20 @@ Backend (from `backend/`):
 - Running backend or tests **outside** `docker compose up` needs
   `QDRANT_URL=http://localhost:6333` (plus `docker compose up -d qdrant`);
   the default `http://qdrant:6333` only resolves inside Compose.
-- Gated integration tests also need real `.env` values and a
-  `SUPABASE_TEST_USER_TOKEN` (a signed-in test user's access token).
+- Running outside Compose also needs `docker compose up -d postgres` and
+  `DATABASE_URL` / `JWT_SECRET` (root `.env`; host port is 5433).
+  Integration tests create their own users directly in the database — no
+  token to mint.
 
 Frontend (from `frontend/`):
 - Install: `npm install` — Run: `npm run dev`
 - Unit tests: `npx vitest run` — single:
   `npx vitest run components/ChatPanel.test.tsx`
 - E2E: `npx playwright test` (needs the full stack up via
-  `docker compose up`, migrations applied, email confirmation off).
+  `docker compose up`).
 
 Full stack: `docker compose up` from the repo root, after `.env` has real
-Supabase/Groq values.
+Groq values and the Postgres/JWT secrets from `.env.example`.
 
 ## Working with Agents & Skills in This Repo
 

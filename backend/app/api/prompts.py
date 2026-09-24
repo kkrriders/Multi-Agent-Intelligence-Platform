@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import Connection, text
 
-from app.auth import get_current_user
-from app.db import fetch_maybe_one, get_user_client, one_row, rows
+from app.db import get_db, maybe_one, one, rows
 from app.models import (
     PromptTemplateCreate,
     PromptTemplateOut,
@@ -13,37 +13,48 @@ from app.prompts import extract_variables
 router = APIRouter(tags=["prompts"])
 
 
-def _latest(client, template_id: str):
-    return fetch_maybe_one(
-        client.table("prompt_template_versions")
-        .select("*")
-        .eq("template_id", template_id)
-        .order("version", desc=True)
-        .limit(1)
+def _latest(conn: Connection, template_id: str):
+    return maybe_one(
+        conn.execute(
+            text(
+                "select * from prompt_template_versions where template_id = :t "
+                "order by version desc limit 1"
+            ),
+            {"t": template_id},
+        )
     )
 
 
-def _version_count(client, template_id: str) -> int:
-    return len(
-        rows(client.table("prompt_template_versions").select("id").eq("template_id", template_id).execute())
-    )
+def _version_count(conn: Connection, template_id: str) -> int:
+    return conn.execute(
+        text("select count(*) from prompt_template_versions where template_id = :t"), {"t": template_id}
+    ).scalar_one()
 
 
 @router.post("/projects/{project_id}/prompt-templates", response_model=PromptTemplateOut)
-def create_template(project_id: str, body: PromptTemplateCreate, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    existing = fetch_maybe_one(
-        client.table("prompt_templates").select("id").eq("project_id", project_id).eq("name", body.name)
+def create_template(project_id: str, body: PromptTemplateCreate, conn: Connection = Depends(get_db)):
+    existing = maybe_one(
+        conn.execute(
+            text("select id from prompt_templates where project_id = :p and name = :n"),
+            {"p": project_id, "n": body.name},
+        )
     )
     if existing:
         raise HTTPException(status_code=400, detail="A template with that name already exists")
-    template = one_row(
-        client.table("prompt_templates").insert({"project_id": project_id, "name": body.name}).execute()
+    template = one(
+        conn.execute(
+            text("insert into prompt_templates (project_id, name) values (:p, :n) returning *"),
+            {"p": project_id, "n": body.name},
+        )
     )
-    version = one_row(
-        client.table("prompt_template_versions")
-        .insert({"template_id": template["id"], "version": 1, "body": body.body})
-        .execute()
+    version = one(
+        conn.execute(
+            text(
+                "insert into prompt_template_versions (template_id, version, body) "
+                "values (:t, 1, :b) returning *"
+            ),
+            {"t": template["id"], "b": body.body},
+        )
     )
     return {
         "id": template["id"],
@@ -57,18 +68,16 @@ def create_template(project_id: str, body: PromptTemplateCreate, user: dict = De
 
 
 @router.get("/projects/{project_id}/prompt-templates", response_model=list[PromptTemplateOut])
-def list_templates(project_id: str, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
+def list_templates(project_id: str, conn: Connection = Depends(get_db)):
     templates = rows(
-        client.table("prompt_templates")
-        .select("*")
-        .eq("project_id", project_id)
-        .order("created_at", desc=True)
-        .execute()
+        conn.execute(
+            text("select * from prompt_templates where project_id = :p order by created_at desc"),
+            {"p": project_id},
+        )
     )
     out = []
     for template in templates:
-        latest = _latest(client, template["id"])
+        latest = _latest(conn, template["id"])
         if not latest:
             continue
         out.append(
@@ -78,7 +87,7 @@ def list_templates(project_id: str, user: dict = Depends(get_current_user)):
                 "version": latest["version"],
                 "body": latest["body"],
                 "variables": extract_variables(latest["body"]),
-                "version_count": _version_count(client, template["id"]),
+                "version_count": _version_count(conn, template["id"]),
                 "created_at": template["created_at"],
             }
         )
@@ -86,14 +95,12 @@ def list_templates(project_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/prompt-templates/{template_id}/versions", response_model=list[PromptTemplateVersionOut])
-def list_versions(template_id: str, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
+def list_versions(template_id: str, conn: Connection = Depends(get_db)):
     versions = rows(
-        client.table("prompt_template_versions")
-        .select("*")
-        .eq("template_id", template_id)
-        .order("version", desc=True)
-        .execute()
+        conn.execute(
+            text("select * from prompt_template_versions where template_id = :t order by version desc"),
+            {"t": template_id},
+        )
     )
     if not versions:
         raise HTTPException(status_code=404, detail="Prompt template not found")
@@ -101,14 +108,17 @@ def list_versions(template_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.put("/prompt-templates/{template_id}", response_model=PromptTemplateVersionOut)
-def add_version(template_id: str, body: PromptTemplateUpdate, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    latest = _latest(client, template_id)
+def add_version(template_id: str, body: PromptTemplateUpdate, conn: Connection = Depends(get_db)):
+    latest = _latest(conn, template_id)
     if not latest:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    new = one_row(
-        client.table("prompt_template_versions")
-        .insert({"template_id": template_id, "version": latest["version"] + 1, "body": body.body})
-        .execute()
+    new = one(
+        conn.execute(
+            text(
+                "insert into prompt_template_versions (template_id, version, body) "
+                "values (:t, :v, :b) returning *"
+            ),
+            {"t": template_id, "v": latest["version"] + 1, "b": body.body},
+        )
     )
     return {**new, "variables": extract_variables(new["body"])}

@@ -1,29 +1,54 @@
-from typing import Any, cast
+from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Iterator
+from uuid import UUID
 
-from supabase import Client, create_client
+from fastapi import Depends
+from sqlalchemy import Connection, create_engine, text
 
+from app.auth import get_current_user
 from app.config import settings
 
-
-def get_user_client(token: str) -> Client:
-    client = create_client(settings.supabase_url, settings.supabase_anon_key)
-    client.postgrest.auth(token)
-    client.options.headers["Authorization"] = f"Bearer {token}"
-    return client
+# AUTOCOMMIT: each statement commits on its own, matching the PostgREST behaviour the
+# callers were written against (e.g. a `failed` status written in an except block survives).
+engine = create_engine(settings.database_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
 
 
-def fetch_maybe_one(query) -> dict | None:
-    # ponytail: this postgrest-py version returns None (not a response with data=None)
-    # from .maybe_single().execute() when zero rows match — guard before .data.
-    response = query.maybe_single().execute()
-    return response.data if response else None
+@contextmanager
+def user_conn(user_id: str) -> Iterator[Connection]:
+    with engine.connect() as conn:
+        # session-level (is_local=false) because AUTOCOMMIT has no enclosing transaction
+        conn.execute(text("select set_config('app.user_id', :u, false)"), {"u": user_id})
+        try:
+            yield conn
+        finally:
+            conn.execute(text("reset app.user_id"))  # pool only rolls back; it does not clear GUCs
 
 
-def rows(response) -> list[dict[str, Any]]:
-    # ponytail: postgrest types response.data as list[JSON] (a str/int/bool/None union)
-    # so plain dict access fails type-checking; every row here is a real table row.
-    return cast(list[dict[str, Any]], response.data)
+def get_db(user: dict = Depends(get_current_user)) -> Iterator[Connection]:
+    with user_conn(user["id"]) as conn:
+        yield conn
 
 
-def one_row(response) -> dict[str, Any]:
-    return cast(dict, response.data[0])
+def _plain(v: Any) -> Any:
+    if isinstance(v, UUID):
+        return str(v)
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
+def rows(result) -> list[dict[str, Any]]:
+    return [{k: _plain(v) for k, v in r._mapping.items()} for r in result]
+
+
+def one(result) -> dict[str, Any]:
+    return rows(result)[0]
+
+
+def maybe_one(result) -> dict[str, Any] | None:
+    found = rows(result)
+    return found[0] if found else None

@@ -3,8 +3,8 @@ from datetime import date
 
 import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from app.deploy import (
@@ -59,100 +59,56 @@ def test_build_and_push_argv_are_lists_never_shell_strings():
     assert p == ["docker", "push", ref]
 
 
-# ---- create_deployment flow with a fake Supabase client ----
+# ---- create_deployment flow against real Postgres ----
 
 
-class _FakeTable:
-    def __init__(self, store, name):
-        self.store, self.name, self._rows = store, name, list(store.get(name, []))
-        self._patch = None
+def _call_create(monkeypatch, conn, *, runner, enabled=True):
+    from sqlalchemy import text
 
-    def select(self, *a, **k):
-        return self
-
-    def insert(self, row):
-        row = {"id": f"{self.name}-{len(self.store.setdefault(self.name, []))}", **row,
-               "status": row.get("status", "running"), "git_sha": None, "log": ""}
-        self.store.setdefault(self.name, []).append(row)
-        self._rows = [row]
-        return self
-
-    def update(self, patch):
-        self._patch = patch
-        return self
-
-    def eq(self, col, val):
-        self._rows = [r for r in self._rows if r.get(col) == val]
-        return self
-
-    def order(self, *a, **k):
-        return self
-
-    def limit(self, *a, **k):
-        return self
-
-    def maybe_single(self):
-        self._single = True
-        return self
-
-    def execute(self):
-        if self._patch is not None:
-            for r in self._rows:
-                r.update(self._patch)
-            self._patch = None
-        if getattr(self, "_single", False):
-            return type("R", (), {"data": self._rows[0] if self._rows else None})()
-        return type("R", (), {"data": list(self._rows)})()
-
-
-class _FakeClient:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _FakeTable(self.store, name)
-
-
-def _call_create(monkeypatch, *, runner, enabled=True):
     from app.api import deployments as dep
     from app.config import settings
+    from app.db import one
     from app.models import DeploymentCreate
 
     monkeypatch.setattr(settings, "enable_deploy_api", enabled)
-    store = {"deploy_targets": [
-        {"id": "t1", "name": "prod", "registry": "ghcr.io", "image_repo": "acme/app", "config": {}}
-    ]}
-    monkeypatch.setattr(dep, "get_user_client", lambda token: _FakeClient(store))
+    target = one(
+        conn.execute(
+            text(
+                "insert into deploy_targets (name, registry, image_repo) "
+                "values (:n, 'ghcr.io', 'acme/app') returning *"
+            ),
+            {"n": f"prod-{os.urandom(3).hex()}"},
+        )
+    )
     monkeypatch.setattr(dep, "_run", runner)
-    out = dep.create_deployment(DeploymentCreate(target_id="t1", components=["backend"]), {"token": "x"})
-    return out, store
+    return dep.create_deployment(DeploymentCreate(target_id=target["id"], components=["backend"]), conn)
 
 
-def test_create_deployment_marks_succeeded_and_captures_log(monkeypatch):
+def test_create_deployment_marks_succeeded_and_captures_log(monkeypatch, user_db):
     calls = []
 
     def runner(argv, cwd=None):
         calls.append(argv)
         return 0, f"ok: {' '.join(argv)}\n"
 
-    out, _ = _call_create(monkeypatch, runner=runner)
+    out = _call_create(monkeypatch, user_db[1], runner=runner)
     assert out["status"] == "succeeded"
     assert "docker" in out["log"] and out["image_tag"].count("-") >= 3
     assert ["docker", "build", "-t"] == calls[1][:3]  # calls[0] is git rev-parse
 
 
-def test_create_deployment_marks_failed_on_nonzero_exit(monkeypatch):
+def test_create_deployment_marks_failed_on_nonzero_exit(monkeypatch, user_db):
     def runner(argv, cwd=None):
         if argv[:2] == ["git", "rev-parse"]:
             return 0, "abc1234\n"
         return 1, "build blew up\n"
 
-    out, _ = _call_create(monkeypatch, runner=runner)
+    out = _call_create(monkeypatch, user_db[1], runner=runner)
     assert out["status"] == "failed"
     assert "build blew up" in out["log"]
 
 
-def test_create_deployment_503_when_disabled(monkeypatch):
+def test_create_deployment_503_when_disabled(monkeypatch, user_db):
     with pytest.raises(Exception) as ei:
-        _call_create(monkeypatch, runner=lambda *a, **k: (0, ""), enabled=False)
+        _call_create(monkeypatch, user_db[1], runner=lambda *a, **k: (0, ""), enabled=False)
     assert "503" in str(ei.value) or "disabled" in str(ei.value)

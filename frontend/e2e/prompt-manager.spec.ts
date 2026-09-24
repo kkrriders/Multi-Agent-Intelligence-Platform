@@ -23,7 +23,7 @@ test('create a template, test it, and run it from Chat/Run', async ({ page }) =>
   await page.getByRole('button', { name: /run test/i }).click()
   await expect(page.getByTestId('test-output')).not.toBeEmpty({ timeout: 60_000 })
 
-  await page.getByRole('button', { name: /chat \/ run/i }).click()
+  await page.getByRole('button', { name: /playground/i }).click()
   await page.getByLabel(/template/i).selectOption({ label: 'hello' })
   await page.getByLabel(/var name/i).fill('Sam')
   await page.getByRole('button', { name: /send/i }).click()

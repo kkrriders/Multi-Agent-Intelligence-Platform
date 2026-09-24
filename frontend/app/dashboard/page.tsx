@@ -32,7 +32,7 @@ export default function DashboardPage() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto w-full min-w-0 max-w-2xl px-6 py-16">
+      <main className="mx-auto w-full min-w-0 max-w-[1600px] px-6 py-10 lg:px-10">
         <h1 className="mb-2 font-heading text-2xl font-bold uppercase">Projects</h1>
         <p className="mb-6 text-sm text-muted-foreground">
           Each project is one AI application — its own documents, tools, prompts, guardrail policy,

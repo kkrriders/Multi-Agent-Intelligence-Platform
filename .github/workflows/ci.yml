@@ -24,8 +24,6 @@ jobs:
       - run: npx vitest run
       - run: npx next build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   backend:
@@ -33,16 +31,38 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: maip
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d maip"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      # Dummy values so app.config.Settings() instantiates; the integration
-      # tests that need real Groq / Supabase / Qdrant skip themselves.
-      SUPABASE_URL: http://localhost
-      SUPABASE_ANON_KEY: dummy-anon-key
+      # Real Postgres (service below) backs the DB integration tests; the ones
+      # that need real Groq / Qdrant skip themselves.
+      DATABASE_URL: postgresql+psycopg://maip_app:ci@localhost:5432/maip
+      JWT_SECRET: ci-only-secret-at-least-32-characters-long
       # "test" is the sentinel the Groq integration-test skip guards check for.
       GROQ_API_KEY: test
       QDRANT_URL: http://localhost:6333
     steps:
       - uses: actions/checkout@v4
+      - name: Create schema (role, shim, migrations, grants)
+        working-directory: .
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ci
+          POSTGRES_USER: postgres
+          POSTGRES_DB: maip
+          MAIP_APP_PASSWORD: ci
+          DB_DIR: backend/db
+          MIGRATIONS_DIR: backend/migrations
+        run: sh backend/db/init.sh
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

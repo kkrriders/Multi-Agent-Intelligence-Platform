@@ -23,7 +23,7 @@ test('uploads a document and cites it in a chat response', async ({ page }) => {
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
   await expect(page.getByText('indexed')).toBeVisible({ timeout: 15000 })
 
-  await page.getByRole('button', { name: /chat \/ run/i }).click()
+  await page.getByRole('button', { name: /playground/i }).click()
   await page.getByLabel(/message/i).fill('What is the launch codeword? Reply with just the word.')
   await page.getByRole('button', { name: /send/i }).click()
 

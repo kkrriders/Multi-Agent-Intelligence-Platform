@@ -23,7 +23,7 @@ The full design rationale and scope live in
 | Area | What it does |
 |---|---|
 | **Multi-agent orchestration** | A LangGraph graph with an `orchestrator` node that routes over `researcher`, `tool_runner`, `executor` and `verifier` workers. Bounded loop (`MAX_TURNS=4`, `MAX_TOOL_CALLS=3`, `MAX_RESEARCHER_RERUNS=1`). Every node emits a timestamped `run_events` row. |
-| **Advanced RAG** | Upload documents → chunk → embed (`BAAI/bge-small-en-v1.5`) → store in Qdrant. Hybrid retrieval (vector + Postgres full-text keyword) with per-chunk citations attached to the answer. Source files live in a private Supabase Storage bucket with owner-scoped RLS. |
+| **Advanced RAG** | Upload documents → chunk → embed (`BAAI/bge-small-en-v1.5`) → store in Qdrant. Hybrid retrieval (vector + Postgres full-text keyword) with per-chunk citations attached to the answer. Source files live on a Docker volume (`DOCUMENT_STORAGE_DIR`); a document row is only created for a project the caller owns (RLS). |
 | **Memory** | Per-conversation history is replayed into the prompt; long-term semantic memory is written to Qdrant after each run and recalled across conversations by similarity. |
 | **Tool calling** | Register REST tools per project; the agent loop uses Groq-native function calling over the **GET-only** subset (non-GET tools are never callable by the model, and the model never sets the URL or headers). Tools can also be invoked directly through the API. |
 | **Guardrails** | Pre-hook: heuristic prompt-injection patterns plus one Groq classifier when the heuristics are clean, and configurable `input_constraint` policies (max length, term blocklist). A blocked run returns HTTP 422 with no graph spend. Post-hook: regex PII masking applied to the answer *before* it reaches the run output, the timeline, or memory. |
@@ -64,10 +64,12 @@ User → Web workspace → Project → Run
   `MODEL_CHEAP` (`openai/gpt-oss-20b`) for classification-shaped calls. A
   context-var accumulator records token usage per call without threading
   state through call sites.
-- **Auth & permissions** — Supabase Auth issues JWTs; the backend verifies
-  them via JWKS and forwards the caller's token to a per-request Supabase
-  client. **Row Level Security is the only authorization mechanism** —
-  there is no application-level permission code.
+- **Auth & permissions** — `POST /auth/signup` / `/auth/login` issue HS256
+  JWTs (scrypt-hashed passwords in `auth.users`). Each request runs on a
+  Postgres connection that sets `app.user_id` to the caller, which the
+  migrations' `auth.uid()` reads. **Row Level Security is the only
+  authorization mechanism** — there is no application-level permission code,
+  and the app connects as a non-owner role so RLS cannot be bypassed.
 - **Frontend** — Next.js (App Router) with a landing page, auth screens, a
   project dashboard, and a per-project workspace whose left nav switches
   between the capability panels.
@@ -81,8 +83,9 @@ User → Web workspace → Project → Run
 | Backend | Python, FastAPI |
 | Agent orchestration | LangGraph |
 | LLM | Groq (`openai/gpt-oss-120b` + `openai/gpt-oss-20b`) |
-| Database + Auth | Supabase (Postgres, Row Level Security, Supabase Auth) |
-| Object storage | Supabase Storage (private `documents` bucket) |
+| Database | Postgres 16 in Docker (Row Level Security), SQLAlchemy Core + psycopg |
+| Auth | Password auth + HS256 JWT (`/auth/*`) |
+| Document files | Local Docker volume |
 | Vector store | Qdrant (self-hosted via Docker) |
 | Embeddings | `fastembed` — `BAAI/bge-small-en-v1.5` (384-dim, cosine) |
 | Frontend | Next.js (App Router), shadcn/ui, Tailwind CSS |
@@ -124,7 +127,7 @@ frontend/
                         Memory Explorer, Guardrails, Observability, Prompt
                         Manager, Evaluation, Cost Analytics, Settings,
                         Deployment) + trace/timeline views
-  lib/                  Supabase client + typed API wrapper
+  lib/                  auth token helper + typed API wrapper
   e2e/                  Playwright specs (one per capability)
 docker-compose.yml
 docs/superpowers/       design specs + implementation plans
@@ -137,7 +140,6 @@ docs/superpowers/       design specs + implementation plans
 ### Prerequisites
 
 - Docker + Docker Compose
-- A Supabase project (URL + anon key)
 - A Groq API key
 
 ### 1. Environment variables
@@ -145,34 +147,28 @@ docs/superpowers/       design specs + implementation plans
 Copy `.env.example` to `.env` and fill it in:
 
 ```dotenv
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
 GROQ_API_KEY=
-
-# Same Supabase URL/anon key again — Next.js inlines its own copies at build time
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_API_URL=http://localhost:8000
+
+POSTGRES_PASSWORD=
+MAIP_APP_PASSWORD=
+# >= 32 chars: python -c "import secrets;print(secrets.token_urlsafe(48))"
+JWT_SECRET=
+# Only needed when running the backend on the host (Compose sets its own):
+DATABASE_URL=postgresql+psycopg://maip_app:<MAIP_APP_PASSWORD>@localhost:5433/maip
 ```
 
-### 2. Apply the database schema
+### 2. Database schema
 
-Open the Supabase project's **SQL Editor** and run each file in
-`backend/migrations/` in order, `0001_init.sql` through
-`0010_deployment.sql`. Each creates its tables plus Row Level Security
-policies. There is no migration runner — this is a manual step, and a
-migration is not live until it has been applied here.
+Nothing to do by hand: on the **first boot of an empty `postgres_data`
+volume**, `backend/db/init.sh` creates the `maip_app` role, applies
+`backend/db/00_local_shim.sql` (the `auth.users` table, `auth.uid()` and
+stub `storage` objects the migrations reference) and then every file in
+`backend/migrations/` in order. To apply a *new* migration to an existing
+database run it with `psql` as the `postgres` user, or reset with
+`docker compose down -v postgres` (this deletes all data).
 
-### 3. Configure Supabase Auth
-
-Under **Auth → Providers → Email**, disable "Confirm email" (or
-pre-confirm your test account) so signing up logs a user in immediately.
-
-The RAG feature also needs a **private Storage bucket named `documents`**
-with an RLS policy on `storage.objects` scoping access by project
-ownership (created via the Supabase dashboard or SQL).
-
-### 4. Run it
+### 3. Run it
 
 ```bash
 docker compose up
@@ -181,6 +177,7 @@ docker compose up
 - Web workspace: <http://localhost:3000>
 - API: <http://localhost:8000> — health check at `/health`
 - Qdrant: <http://localhost:6333>
+- Postgres: `localhost:5433` (host port; 5432 is left free for a native install)
 
 ---
 
@@ -190,7 +187,9 @@ Backend settings (environment variables, read by `app/config.py`):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | — | Supabase project |
+| `DATABASE_URL` | — | SQLAlchemy URL for the non-owner `maip_app` role |
+| `JWT_SECRET` | — | HS256 signing key for access tokens (>= 32 chars, required) |
+| `DOCUMENT_STORAGE_DIR` | `./data/documents` | Where uploaded document bytes are stored |
 | `GROQ_API_KEY` | — | Groq LLM Gateway |
 | `QDRANT_URL` | `http://qdrant:6333` | Vector store. Use `http://localhost:6333` when running the backend outside Compose. |
 | `CACHE_MAX_AGE_DAYS` | `7` | Response-cache entry TTL |
@@ -203,8 +202,10 @@ Backend settings (environment variables, read by `app/config.py`):
 
 ## API overview
 
-All routes require a `Authorization: Bearer <supabase-jwt>` header; RLS
-scopes every query to the caller.
+Sign up / log in with `POST /auth/signup` and `POST /auth/login` (body
+`{email, password}`, returns `{access_token, user}`). Every other route
+requires an `Authorization: Bearer <access_token>` header; RLS scopes every
+query to the caller.
 
 **Projects & conversations**
 ```
@@ -332,10 +333,10 @@ npx playwright test           # E2E — needs the full stack up (see Getting sta
 
 **Testing model.** Pure logic (cost math, cache keys, token estimation,
 alert evaluation, deploy-argv validation, prompt rendering) is unit-tested
-with fixtures. Integration tests run against **real** Groq, Supabase and
+with fixtures. Integration tests run against **real** Groq, Postgres and
 Qdrant — those three are never mocked — and are skip-gated on the
-credentials being present (`.env` values plus a `SUPABASE_TEST_USER_TOKEN`
-for a signed-in test user). Each capability also has a Playwright spec
+services being reachable (`docker compose up -d postgres qdrant`, plus the
+`.env` values); test users are created directly in the database. Each capability also has a Playwright spec
 under `frontend/e2e/`.
 
 ---

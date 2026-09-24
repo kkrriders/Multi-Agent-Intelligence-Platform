@@ -24,3 +24,6 @@ node_modules/
 /PRODUCT.md
 /docs/superpowers/specs/
 /docs/superpowers/plans/
+
+# local document storage
+data/

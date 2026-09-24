@@ -20,8 +20,8 @@ test('signup, create project, register a tool, run a multi-agent message, see gr
   await page.getByRole('button', { name: /register tool/i }).click()
   await expect(page.getByText('Public Echo')).toBeVisible()
 
-  // back to Chat / Run and send a message
-  await page.getByRole('button', { name: /chat \/ run/i }).click()
+  // back to the Playground and send a message
+  await page.getByRole('button', { name: /playground/i }).click()
   await page.getByLabel(/message/i).fill('Give me a one-sentence answer: is water wet?')
   await page.getByRole('button', { name: /send/i }).click()
 

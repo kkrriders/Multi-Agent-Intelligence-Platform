@@ -1,9 +1,8 @@
 import os
 
-import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -25,10 +24,6 @@ def test_list_events_requires_auth():
     assert client.get("/projects/x/guardrail-events").status_code in (401, 422)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required",
-)
 def test_policy_roundtrip_and_synthetic_defaults(auth_headers):
     project = client.post("/projects", json={"name": "GR API"}, headers=auth_headers).json()
     pid = project["id"]

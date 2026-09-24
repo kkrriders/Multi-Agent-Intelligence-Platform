@@ -1,8 +1,7 @@
 import os
-import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -17,10 +16,6 @@ def test_create_conversation_requires_auth():
     assert response.status_code in (401, 422)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required for this integration test",
-)
 def test_create_and_list_conversations(auth_headers):
     project_response = client.post("/projects", json={"name": "Conversation Test Project"}, headers=auth_headers)
     project_id = project_response.json()["id"]

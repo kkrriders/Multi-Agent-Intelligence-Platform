@@ -1,20 +1,14 @@
 """Retrieval-quality benchmark: vector vs. keyword vs. hybrid vs. hybrid+rerank.
 
-Runs against the REAL stack — a real Supabase project/document_chunks rows
-(Postgres full-text search via the generated `content_tsv` column, migration
+Runs against the REAL stack — the local Postgres/document_chunks rows
+(full-text search via the generated `content_tsv` column, migration
 0004_rag.sql) and a real Qdrant collection — through the actual `app.rag`
 functions (`embed_and_store_chunks`, `retrieve_chunks`). Nothing here is
-simulated. Needs the backend + qdrant containers running
-(`docker compose up -d backend qdrant`) and a live Supabase project.
+simulated. Needs `docker compose up -d postgres qdrant` and DATABASE_URL /
+QDRANT_URL in the environment.
 
-Auth: mints a one-shot, in-memory-only access token via the same shared test
-account AIRRA's `labs/integration/run-traffic.ps1` already uses (password
-grant against the real hosted Supabase project). The token is never written
-to disk and never printed — set SUPABASE_URL / SUPABASE_ANON_KEY via
-backend/.env (already required for the backend itself to run) and the
-account's email/password via SUPABASE_TEST_EMAIL / SUPABASE_TEST_PASSWORD
-env vars (falls back to the shared test account's known values so this stays
-runnable without extra setup, matching run-traffic.ps1's own defaults).
+Auth: connects straight to Postgres as the dedicated benchmark user
+(see benchmarks/_platform_data.py), so RLS still applies.
 
     python benchmarks/rag_ablation.py
     python benchmarks/rag_ablation.py --json out.json
@@ -25,18 +19,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from app.config import settings  # noqa: E402
-from app.db import get_user_client, one_row  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+from app.db import one  # noqa: E402
 from app.rag import delete_document_vectors, embed_and_store_chunks, retrieve_chunks  # noqa: E402
 
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"  # fastembed cross-encoder, already an
@@ -111,19 +103,6 @@ EVAL_CASES = [
 ]
 
 
-def _mint_token() -> str:
-    email = os.environ.get("SUPABASE_TEST_EMAIL", "anshuman.aroraak+airra-traffic@gmail.com")
-    password = os.environ.get("SUPABASE_TEST_PASSWORD", "hunter2-hunter2")
-    resp = httpx.post(
-        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
-        headers={"apikey": settings.supabase_anon_key, "Content-Type": "application/json"},
-        json={"email": email, "password": password},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]  # kept in-process only; never logged/persisted
-
-
 def _seed_pool(client, project_id: str) -> tuple[dict[str, str], list[str]]:
     """Insert one document+chunk per case content (and per near_miss), real
     DB rows + real Qdrant vectors. Returns {content: chunk_id} and the list
@@ -141,21 +120,23 @@ def _seed_pool(client, project_id: str) -> tuple[dict[str, str], list[str]]:
         if content in chunk_id_by_content:
             continue  # the rare_term/ambiguous overlap case reuses existing content verbatim
         document_id = str(uuid.uuid4())
-        doc_row = one_row(
-            client.table("documents")
-            .insert(
-                {"id": document_id, "project_id": project_id, "filename": "benchmark.txt",
-                 "mime_type": "text/plain", "storage_path": f"{project_id}/{document_id}/benchmark.txt",
-                 "status": "indexed"}
+        doc_row = one(
+            client.execute(
+                text(
+                    "insert into documents (id, project_id, filename, mime_type, storage_path, status) "
+                    "values (:id, :p, 'benchmark.txt', 'text/plain', :sp, 'indexed') returning *"
+                ),
+                {"id": document_id, "p": project_id, "sp": f"{project_id}/{document_id}/benchmark.txt"},
             )
-            .execute()
         )
-        chunk_row = one_row(
-            client.table("document_chunks")
-            .insert(
-                {"document_id": doc_row["id"], "project_id": project_id, "chunk_index": 0, "content": content}
+        chunk_row = one(
+            client.execute(
+                text(
+                    "insert into document_chunks (document_id, project_id, chunk_index, content) "
+                    "values (:d, :p, 0, :c) returning *"
+                ),
+                {"d": doc_row["id"], "p": project_id, "c": content},
             )
-            .execute()
         )
         embed_and_store_chunks(
             project_id=project_id, document_id=doc_row["id"], filename="benchmark.txt",
@@ -246,20 +227,21 @@ def main() -> int:
     from fastembed.rerank.cross_encoder import TextCrossEncoder
     reranker = TextCrossEncoder(model_name=RERANK_MODEL)
 
-    token = _mint_token()
-    client = get_user_client(token)
-    project = one_row(client.table("projects").insert({"name": "rag-benchmark"}).execute())
-    project_id = project["id"]
+    from _platform_data import bench_conn
 
-    document_ids: list[str] = []
-    try:
-        chunk_id_by_content, document_ids = _seed_pool(client, project_id)
-        report = run(client, project_id, chunk_id_by_content, reranker)
-    finally:
-        for document_id in document_ids:
-            delete_document_vectors(document_id)
-        client.table("documents").delete().eq("project_id", project_id).execute()
-        client.table("projects").delete().eq("id", project_id).execute()
+    with bench_conn() as client:
+        project = one(client.execute(text("insert into projects (name) values ('rag-benchmark') returning *")))
+        project_id = project["id"]
+
+        document_ids: list[str] = []
+        try:
+            chunk_id_by_content, document_ids = _seed_pool(client, project_id)
+            report = run(client, project_id, chunk_id_by_content, reranker)
+        finally:
+            for document_id in document_ids:
+                delete_document_vectors(document_id)
+            client.execute(text("delete from documents where project_id = :p"), {"p": project_id})
+            client.execute(text("delete from projects where id = :p"), {"p": project_id})
 
     _print(report)
     if args.json:

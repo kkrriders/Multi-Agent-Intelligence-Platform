@@ -1,24 +1,17 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import Connection, text
 
-from app.auth import get_current_user
-from app.db import get_user_client
+from app.db import get_db, one, rows
 from app.models import ProjectCreate, ProjectOut
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 @router.post("", response_model=ProjectOut)
-def create_project(body: ProjectCreate, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    result = client.table("projects").insert({"name": body.name}).execute()
-    return result.data[0]
+def create_project(body: ProjectCreate, conn: Connection = Depends(get_db)):
+    return one(conn.execute(text("insert into projects (name) values (:n) returning *"), {"n": body.name}))
 
 
 @router.get("", response_model=list[ProjectOut])
-def list_projects(user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    result = client.table("projects").select("*").order("created_at", desc=True).execute()
-    return result.data
-
-
-
+def list_projects(conn: Connection = Depends(get_db)):
+    return rows(conn.execute(text("select * from projects order by created_at desc")))

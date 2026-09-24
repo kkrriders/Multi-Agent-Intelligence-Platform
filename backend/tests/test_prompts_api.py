@@ -1,9 +1,8 @@
 import os
 
-import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -20,10 +19,6 @@ def test_routes_require_auth():
     assert client.put("/prompt-templates/x", json={"body": "b"}).status_code in (401, 422)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required",
-)
 def test_template_create_version_and_list(auth_headers):
     pid = client.post("/projects", json={"name": "PM"}, headers=auth_headers).json()["id"]
 

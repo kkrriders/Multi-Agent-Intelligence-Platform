@@ -1,5 +1,8 @@
 import uuid
 from io import BytesIO
+from typing import cast
+
+from sqlalchemy import Connection
 
 from app.rag import (
     KEYWORD_MATCH_SCORE,
@@ -54,34 +57,21 @@ def test_extract_text_pdf_reads_embedded_text():
     assert extract_text("application/pdf", pdf_bytes) == ""
 
 
-class _Result:
+class _Row:
+    """Minimal stand-in for a SQLAlchemy Row: rows() only reads ._mapping."""
+
     def __init__(self, data):
-        self.data = data
+        self._mapping = data
 
 
 class _EmptyKeywordClient:
     """Stubs the Postgres half of retrieve_chunks so these tests can verify
-    the Qdrant vector-search half in isolation, without a live authenticated
-    Supabase project. The full hybrid path (both halves together) is
-    exercised by the real integration tests in test_documents.py/test_runs.py."""
+    the Qdrant vector-search half in isolation. The full hybrid path (both
+    halves together) is exercised by the real integration tests in
+    test_documents.py/test_runs.py."""
 
-    def table(self, name):
-        return self
-
-    def select(self, *args, **kwargs):
-        return self
-
-    def eq(self, *args, **kwargs):
-        return self
-
-    def text_search(self, *args, **kwargs):
-        return self
-
-    def limit(self, *args, **kwargs):
-        return self
-
-    def execute(self):
-        return _Result([])
+    def execute(self, *args, **kwargs):
+        return []
 
 
 def test_embed_and_store_then_retrieve_finds_vector_match(qdrant_available):
@@ -96,7 +86,7 @@ def test_embed_and_store_then_retrieve_finds_vector_match(qdrant_available):
         chunks=[{"chunk_id": chunk_id, "chunk_index": 0, "content": "The launch codeword is Bluebird."}],
     )
 
-    results = retrieve_chunks(_EmptyKeywordClient(), project_id, "rocket launch codeword")
+    results = retrieve_chunks(cast(Connection, _EmptyKeywordClient()), project_id, "rocket launch codeword")
 
     assert any(r["chunk_id"] == chunk_id for r in results)
     match = next(r for r in results if r["chunk_id"] == chunk_id)
@@ -118,10 +108,10 @@ def test_retrieve_chunks_vector_mode_skips_keyword_search(qdrant_available):
     )
 
     class _ExplodingKeywordClient(_EmptyKeywordClient):
-        def table(self, name):
+        def execute(self, *args, **kwargs):
             raise AssertionError("mode='vector' must not touch the keyword-search client")
 
-    results = retrieve_chunks(_ExplodingKeywordClient(), project_id, "rocket launch codeword", mode="vector")
+    results = retrieve_chunks(cast(Connection, _ExplodingKeywordClient()), project_id, "rocket launch codeword", mode="vector")
 
     assert any(r["chunk_id"] == chunk_id for r in results)
 
@@ -132,20 +122,20 @@ def test_retrieve_chunks_keyword_mode_skips_vector_search():
     project_id = str(uuid.uuid4())
 
     class _MatchingKeywordClient(_EmptyKeywordClient):
-        def execute(self):
-            return _Result(
-                [
+        def execute(self, *args, **kwargs):
+            return [
+                _Row(
                     {
                         "id": "kw-chunk",
                         "document_id": "doc-1",
                         "chunk_index": 0,
                         "content": "matched by keyword only",
-                        "documents": {"filename": "kw.txt"},
+                        "filename": "kw.txt",
                     }
-                ]
-            )
+                )
+            ]
 
-    results = retrieve_chunks(_MatchingKeywordClient(), project_id, "irrelevant to any vector", mode="keyword")
+    results = retrieve_chunks(cast(Connection, _MatchingKeywordClient()), project_id, "irrelevant to any vector", mode="keyword")
 
     assert results == [
         {
@@ -173,6 +163,6 @@ def test_delete_document_vectors_removes_points(qdrant_available):
     )
     delete_document_vectors(document_id)
 
-    results = retrieve_chunks(_EmptyKeywordClient(), project_id, "rocket launch codeword")
+    results = retrieve_chunks(cast(Connection, _EmptyKeywordClient()), project_id, "rocket launch codeword")
 
     assert not any(r["chunk_id"] == chunk_id for r in results)

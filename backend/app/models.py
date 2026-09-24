@@ -1,6 +1,7 @@
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class ProjectCreate(BaseModel):
@@ -293,3 +294,33 @@ class DocumentOut(BaseModel):
     status: str
     error: str | None = None
     created_at: datetime
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v) or len(v) > 254:
+            raise ValueError("invalid email")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password(cls, v: str) -> str:
+        if not 8 <= len(v) <= 128:
+            raise ValueError("password must be 8-128 characters")
+        return v
+
+
+class AuthUser(BaseModel):
+    id: str
+    email: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    user: AuthUser

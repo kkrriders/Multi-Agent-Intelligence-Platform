@@ -32,7 +32,7 @@ const LIFECYCLE: PipelineStage[] = [
 const SHIPPING = [
   {
     label: 'Runtime & Auth',
-    detail: 'Projects, runs, and a real execution timeline behind Supabase Auth and Row-Level Security.',
+    detail: 'Projects, runs, and a real execution timeline behind password auth and Postgres Row-Level Security.',
   },
   {
     label: 'Tool Calling',
@@ -101,7 +101,7 @@ const PLANNED = [
 export default function LandingPage() {
   return (
     <>
-      <header className="sticky top-0 z-10 flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-background/85 px-6 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-10 flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-background/85 px-6 py-3 backdrop-blur-md lg:px-10">
         <a href="#top" className="flex items-baseline gap-2">
           <span className="font-heading text-sm font-bold tracking-tight text-primary sm:text-base">MAIP</span>
           <span className="hidden text-[10px] tracking-wide text-muted-foreground uppercase sm:inline">
@@ -127,34 +127,35 @@ export default function LandingPage() {
         </nav>
       </header>
 
-      <main id="top" className="mx-auto w-full min-w-0 max-w-5xl px-6 py-16 sm:py-24">
-        <div className="max-w-2xl">
-          <h1 className="font-heading text-4xl leading-[1.02] font-bold tracking-tight uppercase sm:text-6xl">
-            Build AI applications you can actually understand.
-          </h1>
-          <p className="mt-5 text-lg text-muted-foreground">
-            Orchestrate agents, ground them in your data, secure their actions, evaluate their
-            behavior, and see exactly what happened in every run.
-          </p>
-          <div className="mt-8 flex gap-3">
-            <Link href="/signup" className={buttonVariants()}>
-              Get started
-            </Link>
-            <Link href="/login" className={buttonVariants({ variant: 'outline' })}>
-              Log in
-            </Link>
-          </div>
-          <p className="mt-6 border-t border-border pt-4 text-sm text-muted-foreground">
-            Not another agent framework — the control plane underneath the one you already have.
-          </p>
-        </div>
-
-        <div className="punch-corner-lg card-stack-shadow mt-[80px] grid gap-8 overflow-x-auto border border-border bg-card p-8 sm:grid-cols-2 sm:mt-[120px]">
+      <main id="top" className="mx-auto w-full min-w-0 max-w-7xl px-6 py-16 sm:py-24 lg:px-10">
+        <div className="grid items-start gap-10 xl:grid-cols-[2fr_3fr]">
           <div>
-            <p className="mb-6 text-[10px] tracking-wide text-muted-foreground uppercase">Request lifecycle</p>
-            <PipelineFlow stages={LIFECYCLE} />
+            <h1 className="font-heading text-4xl leading-[1.02] font-bold tracking-tight uppercase sm:text-6xl">
+              Build AI applications you can actually understand.
+            </h1>
+            <p className="mt-5 text-lg text-muted-foreground">
+              Orchestrate agents, ground them in your data, secure their actions, evaluate their
+              behavior, and see exactly what happened in every run.
+            </p>
+            <div className="mt-8 flex gap-3">
+              <Link href="/signup" className={buttonVariants()}>
+                Get started
+              </Link>
+              <Link href="/login" className={buttonVariants({ variant: 'outline' })}>
+                Log in
+              </Link>
+            </div>
+            <p className="mt-6 border-t border-border pt-4 text-sm text-muted-foreground">
+              Not another agent framework — the control plane underneath the one you already have.
+            </p>
           </div>
-          <RunTrace />
+          <div className="punch-corner-lg card-stack-shadow grid gap-8 overflow-x-auto border border-border bg-card p-8">
+            <div>
+              <p className="mb-6 text-[10px] tracking-wide text-muted-foreground uppercase">Request lifecycle</p>
+              <PipelineFlow stages={LIFECYCLE} />
+            </div>
+            <RunTrace />
+          </div>
         </div>
 
         <div className="mt-[80px] grid gap-8 border-y border-border py-10 sm:mt-[120px] sm:grid-cols-2 sm:gap-12">
@@ -221,12 +222,12 @@ export default function LandingPage() {
             capability stands.
           </p>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {SHIPPING.map((item) => (
               <div
                 key={item.label}
                 className={`punch-corner card-stack-shadow card-hover bg-card-stock p-5 text-card-stock-foreground ${
-                  item.label === 'Runtime & Auth' ? 'sm:col-span-2' : ''
+                  item.label === 'Runtime & Auth' ? 'sm:col-span-2 lg:col-span-2' : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -279,7 +280,7 @@ export default function LandingPage() {
         </div>
       </main>
 
-      <footer className="border-t border-border px-6 py-6">
+      <footer className="border-t border-border px-6 py-6 lg:px-10">
         <p className="text-xs text-muted-foreground">© 2026 MAIP — Multi-Agent Intelligence Platform</p>
       </footer>
     </>

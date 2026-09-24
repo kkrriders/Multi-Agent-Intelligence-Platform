@@ -1,14 +1,14 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from postgrest import CountMethod
+from sqlalchemy import Connection, text
 
 from app.alerts import evaluate_project_alerts, record_rate_limit_event
-from app.auth import get_current_user
 from app.cache import cache_key
 from app.config import settings
 from app.cost import cost_for
-from app.db import fetch_maybe_one, get_user_client, one_row, rows
+from app.db import get_db, maybe_one, one, rows
 from app.graph import build_graph, make_initial_state
 from app.graph.tool_schemas import sanitize_tools
 from app.guardrails import apply_post, check_input
@@ -50,7 +50,32 @@ def _summarize_history(older_runs: list[dict]) -> str:
     )
 
 
-def _persist_llm_usage(client, run_id: str) -> dict:
+def _add_event(conn: Connection, run_id: str, step_name: str, payload: dict) -> None:
+    conn.execute(
+        text("insert into run_events (run_id, step_name, payload) values (:r, :s, cast(:p as jsonb))"),
+        {"r": run_id, "s": step_name, "p": json.dumps(payload)},
+    )
+
+
+def _add_guardrail_event(
+    conn: Connection, run_id: str, project_id: str, phase: str, kind: str, outcome: str, detail: dict
+) -> None:
+    conn.execute(
+        text(
+            "insert into guardrail_events (run_id, project_id, phase, kind, outcome, detail) "
+            "values (:r, :p, :ph, :k, :o, cast(:d as jsonb))"
+        ),
+        {"r": run_id, "p": project_id, "ph": phase, "k": kind, "o": outcome, "d": json.dumps(detail)},
+    )
+
+
+def _events_for(conn: Connection, table: str, run_id: str) -> list[dict]:
+    # `table` is one of two literals below, never request data.
+    assert table in ("run_events", "guardrail_events")
+    return rows(conn.execute(text(f"select * from {table} where run_id = :r order by created_at"), {"r": run_id}))
+
+
+def _persist_llm_usage(conn: Connection, run_id: str) -> dict:
     """Drain the per-run usage accumulator into run_llm_calls rows and return
     the summed {prompt_tokens, completion_tokens, cost_usd} for the run row."""
     calls = drain_usage()
@@ -72,13 +97,19 @@ def _persist_llm_usage(client, run_id: str) -> dict:
             }
         )
     if call_rows:
-        client.table("run_llm_calls").insert(call_rows).execute()
+        conn.execute(
+            text(
+                "insert into run_llm_calls (run_id, node, model, prompt_tokens, completion_tokens, cost_usd) "
+                "values (:run_id, :node, :model, :prompt_tokens, :completion_tokens, :cost_usd)"
+            ),
+            call_rows,
+        )
     totals["cost_usd"] = round(totals["cost_usd"], 6)
     return totals
 
 
 def _finalize_run(
-    client,
+    conn: Connection,
     *,
     run_id,
     project_id,
@@ -96,76 +127,76 @@ def _finalize_run(
     post = apply_post(raw_output, policies)
     output = post.output
     for ev in post.events:
-        client.table("guardrail_events").insert(
-            {
-                "run_id": run_id,
-                "project_id": project_id,
-                "phase": "post",
-                "kind": ev["kind"],
-                "outcome": ev["outcome"],
-                "detail": ev["detail"],
-            }
-        ).execute()
+        _add_guardrail_event(conn, run_id, project_id, "post", ev["kind"], ev["outcome"], ev["detail"])
 
-    client.table("run_events").insert(
-        {"run_id": run_id, "step_name": "agent_responded", "payload": {"output": output}}
-    ).execute()
+    _add_event(conn, run_id, "agent_responded", {"output": output})
 
     # Persisted for both paths: even a cache hit still paid for the pre-hook
     # injection classifier call (real Groq spend before the cache check runs),
     # so cost accounting must record it rather than reporting a cache hit as free.
-    totals = _persist_llm_usage(client, run_id)
+    totals = _persist_llm_usage(conn, run_id)
     if not cache_hit:
-        client.table("response_cache").upsert(
-            {
-                "project_id": project_id,
-                "cache_key": ckey,
-                "output": output,
-                "hit_count": 0,
-                "created_at": _iso_now(),  # refresh the age clock when regenerating a stale entry
-            },
-            on_conflict="project_id,cache_key",
-        ).execute()
+        conn.execute(
+            text(
+                "insert into response_cache (project_id, cache_key, output, hit_count, created_at) "
+                "values (:p, :k, :o, 0, :t) "
+                "on conflict (project_id, cache_key) do update set output = excluded.output, "
+                "hit_count = 0, created_at = excluded.created_at"  # refresh the age clock on regeneration
+            ),
+            {"p": project_id, "k": ckey, "o": output, "t": _iso_now()},
+        )
 
-    updated = one_row(
-        client.table("runs")
-        .update({"status": "completed", "output": output, "cache_hit": cache_hit, **totals})
-        .eq("id", run_id)
-        .execute()
+    updated = one(
+        conn.execute(
+            text(
+                "update runs set status = 'completed', output = :o, cache_hit = :h, "
+                "prompt_tokens = :pt, completion_tokens = :ct, cost_usd = :c where id = :i returning *"
+            ),
+            {
+                "o": output,
+                "h": cache_hit,
+                "pt": totals["prompt_tokens"],
+                "ct": totals["completion_tokens"],
+                "c": totals["cost_usd"],
+                "i": run_id,
+            },
+        )
     )
     upsert_memory(run_id, project_id, conversation_id, resolved_input, output)
 
-    events = rows(client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute())
-    guardrail_events = rows(
-        client.table("guardrail_events").select("*").eq("run_id", run_id).order("created_at").execute()
-    )
+    events = _events_for(conn, "run_events", run_id)
+    guardrail_events = _events_for(conn, "guardrail_events", run_id)
     return {
         **updated,
         "events": events,
         "citations": citations,
         "guardrails": guardrail_events,
-        "llm_calls": _fetch_llm_calls(client, run_id),
+        "llm_calls": _fetch_llm_calls(conn, run_id),
     }
 
 
-def _fetch_llm_calls(client, run_id: str) -> list[dict]:
+def _fetch_llm_calls(conn: Connection, run_id: str) -> list[dict]:
     return rows(
-        client.table("run_llm_calls")
-        .select("node, model, prompt_tokens, completion_tokens, cost_usd")
-        .eq("run_id", run_id)
-        .order("created_at")
-        .execute()
+        conn.execute(
+            text(
+                "select node, model, prompt_tokens, completion_tokens, cost_usd from run_llm_calls "
+                "where run_id = :r order by created_at"
+            ),
+            {"r": run_id},
+        )
     )
 
 
 @router.post("/conversations/{conversation_id}/runs", response_model=RunOut)
-def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-
-    conversation = fetch_maybe_one(
-        client.table("conversations")
-        .select("project_id, history_summary, summary_through_run_id")
-        .eq("id", conversation_id)
+def create_run(conversation_id: str, body: RunCreate, conn: Connection = Depends(get_db)):
+    conversation = maybe_one(
+        conn.execute(
+            text(
+                "select project_id, history_summary, summary_through_run_id "
+                "from conversations where id = :i"
+            ),
+            {"i": conversation_id},
+        )
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -174,13 +205,12 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
     # Rate limit before any spend. RLS scopes `runs` to the caller's own
     # projects, so this COUNT is naturally per-user.
     if settings.run_rate_limit_per_min:
-        since = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
-        recent = (
-            client.table("runs").select("id", count=CountMethod.exact).gte("created_at", since).execute().count
-            or 0
-        )
+        since = datetime.now(timezone.utc) - timedelta(seconds=60)
+        recent = conn.execute(
+            text("select count(*) from runs where created_at >= :s"), {"s": since}
+        ).scalar_one()
         if recent >= settings.run_rate_limit_per_min:
-            record_rate_limit_event(client, project_id, settings.run_rate_limit_per_min)
+            record_rate_limit_event(conn, project_id, settings.run_rate_limit_per_min)
             raise HTTPException(status_code=429, detail="run rate limit exceeded; retry shortly")
 
     # Everything from here — the history-summary call and the graph — feeds the
@@ -190,12 +220,14 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
     if body.template_id:
         # RLS on prompt_template_versions blocks other projects' templates, so a
         # missing row means "not found or not yours".
-        version = fetch_maybe_one(
-            client.table("prompt_template_versions")
-            .select("version, body")
-            .eq("template_id", body.template_id)
-            .order("version", desc=True)
-            .limit(1)
+        version = maybe_one(
+            conn.execute(
+                text(
+                    "select version, body from prompt_template_versions where template_id = :t "
+                    "order by version desc limit 1"
+                ),
+                {"t": body.template_id},
+            )
         )
         if not version:
             raise HTTPException(status_code=404, detail="Prompt template not found")
@@ -214,16 +246,15 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         prompt_meta = None
 
     prior_runs = rows(
-        client.table("runs")
-        .select("id, input, output")
-        .eq("conversation_id", conversation_id)
-        .order("created_at")
-        .execute()
+        conn.execute(
+            text("select id, input, output from runs where conversation_id = :c order by created_at"),
+            {"c": conversation_id},
+        )
     )
     memories = search_memory(project_id, resolved_input)
     memory_context = [f"User: {m['input']}\nAssistant: {m['output']}" for m in memories]
 
-    chunks = retrieve_chunks(client, project_id, resolved_input)
+    chunks = retrieve_chunks(conn, project_id, resolved_input)
     citations = [
         {
             "index": i + 1,
@@ -234,97 +265,82 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         for i, chunk in enumerate(chunks)
     ]
 
-    run = one_row(
-        client.table("runs")
-        .insert(
-            {
-                "project_id": project_id,
-                "conversation_id": conversation_id,
-                "status": "running",
-                "input": resolved_input,
-            }
+    run = one(
+        conn.execute(
+            text(
+                "insert into runs (project_id, conversation_id, status, input) "
+                "values (:p, :c, 'running', :i) returning *"
+            ),
+            {"p": project_id, "c": conversation_id, "i": resolved_input},
         )
-        .execute()
     )
     run_id = run["id"]
 
-    client.table("run_events").insert(
-        {"run_id": run_id, "step_name": "run_started", "payload": {"input": resolved_input}}
-    ).execute()
+    _add_event(conn, run_id, "run_started", {"input": resolved_input})
 
     if prompt_meta:
-        client.table("run_events").insert(
-            {"run_id": run_id, "step_name": "prompt_used", "payload": {"turn": 0, **prompt_meta}}
-        ).execute()
+        _add_event(conn, run_id, "prompt_used", {"turn": 0, **prompt_meta})
 
     if memories:
-        client.table("run_events").insert(
-            {
-                "run_id": run_id,
-                "step_name": "memory_recalled",
-                "payload": {"turn": 0, "count": len(memories), "top_score": memories[0]["score"]},
-            }
-        ).execute()
+        _add_event(
+            conn,
+            run_id,
+            "memory_recalled",
+            {"turn": 0, "count": len(memories), "top_score": memories[0]["score"]},
+        )
 
     if chunks:
-        client.table("run_events").insert(
+        _add_event(
+            conn,
+            run_id,
+            "retrieval_performed",
             {
-                "run_id": run_id,
-                "step_name": "retrieval_performed",
-                "payload": {
-                    "turn": 0,
-                    "count": len(chunks),
-                    "top_score": chunks[0]["score"],
-                    "sources": [{"filename": c["filename"], "score": c["score"]} for c in chunks],
-                },
-            }
-        ).execute()
+                "turn": 0,
+                "count": len(chunks),
+                "top_score": chunks[0]["score"],
+                "sources": [{"filename": c["filename"], "score": c["score"]} for c in chunks],
+            },
+        )
 
     policy_rows = rows(
-        client.table("guardrail_policies")
-        .select("kind, enabled, config")
-        .eq("project_id", project_id)
-        .execute()
+        conn.execute(
+            text("select kind, enabled, config from guardrail_policies where project_id = :p"),
+            {"p": project_id},
+        )
     )
     policies = {r["kind"]: {"enabled": r["enabled"], "config": r["config"]} for r in policy_rows}
 
     verdict = check_input(resolved_input, [c["content"] for c in chunks], policies)
-    client.table("guardrail_events").insert(
-        {
-            "run_id": run_id,
-            "project_id": project_id,
-            "phase": "pre",
-            "kind": verdict.kind or "injection",
-            "outcome": "pass" if verdict.ok else "blocked",
-            "detail": verdict.detail,
-        }
-    ).execute()
+    _add_guardrail_event(
+        conn,
+        run_id,
+        project_id,
+        "pre",
+        verdict.kind or "injection",
+        "pass" if verdict.ok else "blocked",
+        verdict.detail,
+    )
     if not verdict.ok:
-        client.table("runs").update({"status": "blocked"}).eq("id", run_id).execute()
-        evaluate_project_alerts(client, project_id)
+        conn.execute(text("update runs set status = 'blocked' where id = :i"), {"i": run_id})
+        evaluate_project_alerts(conn, project_id)
         reason = verdict.detail.get("reason") or verdict.detail.get("matched") or verdict.kind
         raise HTTPException(status_code=422, detail=f"blocked by guardrail: {reason}")
 
     ckey = cache_key(project_id, resolved_input, [c["chunk_id"] for c in chunks], len(prior_runs))
-    cached = fetch_maybe_one(
-        client.table("response_cache")
-        .select("*")
-        .eq("project_id", project_id)
-        .eq("cache_key", ckey)
+    cached = maybe_one(
+        conn.execute(
+            text("select * from response_cache where project_id = :p and cache_key = :k"),
+            {"p": project_id, "k": ckey},
+        )
     )
     if cached and _cache_is_fresh(cached["created_at"]):
-        client.table("response_cache").update(
-            {"hit_count": cached["hit_count"] + 1, "last_hit_at": _iso_now()}
-        ).eq("id", cached["id"]).execute()
-        client.table("run_events").insert(
-            {
-                "run_id": run_id,
-                "step_name": "cache_hit",
-                "payload": {"turn": 0, "hit_count": cached["hit_count"] + 1},
-            }
-        ).execute()
+        conn.execute(
+            text("update response_cache set hit_count = :h, last_hit_at = :t where id = :i"),
+            {"h": cached["hit_count"] + 1, "t": _iso_now(), "i": cached["id"]},
+        )
+        _add_event(conn, run_id, "cache_hit", {"turn": 0, "hit_count": cached["hit_count"] + 1})
         result = _finalize_run(
-            client,
+            conn,
             run_id=run_id,
             project_id=project_id,
             conversation_id=conversation_id,
@@ -335,7 +351,7 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
             ckey=ckey,
             cache_hit=True,
         )
-        evaluate_project_alerts(client, project_id)
+        evaluate_project_alerts(conn, project_id)
         return result
 
     # Only reached on a cache miss: prepare_history() may call MODEL_CHEAP to
@@ -348,28 +364,33 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         summarize=_summarize_history,
     )
     if compression and not compression["summary_reused"]:
-        client.table("conversations").update(
+        conn.execute(
+            text(
+                "update conversations set history_summary = :s, summary_through_run_id = :r where id = :i"
+            ),
             {
-                "history_summary": compression["summary"],
-                "summary_through_run_id": compression["summary_through_run_id"],
-            }
-        ).eq("id", conversation_id).execute()
+                "s": compression["summary"],
+                "r": compression["summary_through_run_id"],
+                "i": conversation_id,
+            },
+        )
     if compression:
-        client.table("run_events").insert(
+        _add_event(
+            conn,
+            run_id,
+            "history_compressed",
             {
-                "run_id": run_id,
-                "step_name": "history_compressed",
-                "payload": {
-                    "turn": 0,
-                    "runs_summarized": compression["runs_summarized"],
-                    "tokens_before": compression["tokens_before"],
-                    "tokens_after": compression["tokens_after"],
-                    "summary_reused": compression["summary_reused"],
-                },
-            }
-        ).execute()
+                "turn": 0,
+                "runs_summarized": compression["runs_summarized"],
+                "tokens_before": compression["tokens_before"],
+                "tokens_after": compression["tokens_after"],
+                "summary_reused": compression["summary_reused"],
+            },
+        )
 
-    tool_rows = rows(client.table("tools").select("name, type, config").eq("project_id", project_id).execute())
+    tool_rows = rows(
+        conn.execute(text("select name, type, config from tools where project_id = :p"), {"p": project_id})
+    )
     tool_specs, tool_configs = sanitize_tools(tool_rows)
 
     graph = build_graph(tool_configs)
@@ -387,20 +408,16 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         for snapshot in graph.stream(initial, stream_mode="values"):
             final_state = snapshot
             for event in snapshot["events"][flushed:]:
-                client.table("run_events").insert(
-                    {"run_id": run_id, "step_name": event["step_name"], "payload": event["payload"]}
-                ).execute()
+                _add_event(conn, run_id, event["step_name"], event["payload"])
             flushed = len(snapshot["events"])
     except Exception as exc:  # noqa: BLE001 - persist the failure, then surface it
-        client.table("run_events").insert(
-            {"run_id": run_id, "step_name": "error", "payload": {"detail": str(exc)[:500]}}
-        ).execute()
-        client.table("runs").update({"status": "failed"}).eq("id", run_id).execute()
-        evaluate_project_alerts(client, project_id)
+        _add_event(conn, run_id, "error", {"detail": str(exc)[:500]})
+        conn.execute(text("update runs set status = 'failed' where id = :i"), {"i": run_id})
+        evaluate_project_alerts(conn, project_id)
         raise HTTPException(status_code=500, detail="Run failed during orchestration")
 
     result = _finalize_run(
-        client,
+        conn,
         run_id=run_id,
         project_id=project_id,
         conversation_id=conversation_id,
@@ -411,49 +428,56 @@ def create_run(conversation_id: str, body: RunCreate, user: dict = Depends(get_c
         ckey=ckey,
         cache_hit=False,
     )
-    evaluate_project_alerts(client, project_id)
+    evaluate_project_alerts(conn, project_id)
     return result
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)
-def get_run(run_id: str, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    run = fetch_maybe_one(client.table("runs").select("*").eq("id", run_id))
+def get_run(run_id: str, conn: Connection = Depends(get_db)):
+    run = maybe_one(conn.execute(text("select * from runs where id = :i"), {"i": run_id}))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    events = rows(client.table("run_events").select("*").eq("run_id", run_id).order("created_at").execute())
-    return {**run, "events": events, "llm_calls": _fetch_llm_calls(client, run_id)}
+    events = _events_for(conn, "run_events", run_id)
+    return {**run, "events": events, "llm_calls": _fetch_llm_calls(conn, run_id)}
 
 
 @router.get("/projects/{project_id}/runs", response_model=list[RunOut])
-def list_project_runs(project_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
-    project = fetch_maybe_one(client.table("projects").select("id").eq("id", project_id))
+def list_project_runs(project_id: str, limit: int = 50, conn: Connection = Depends(get_db)):
+    project = maybe_one(conn.execute(text("select id from projects where id = :i"), {"i": project_id}))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     conv_ids = [
         c["id"]
-        for c in rows(client.table("conversations").select("id").eq("project_id", project_id).execute())
+        for c in rows(conn.execute(text("select id from conversations where project_id = :p"), {"p": project_id}))
     ]
     if not conv_ids:
         return []
 
     project_runs = rows(
-        client.table("runs")
-        .select("*")
-        .in_("conversation_id", conv_ids)
-        .order("created_at", desc=True)
-        .limit(min(limit, 200))
-        .execute()
+        conn.execute(
+            text(
+                "select * from runs where conversation_id = any(cast(:ids as uuid[])) "
+                "order by created_at desc limit :n"
+            ),
+            {"ids": conv_ids, "n": min(limit, 200)},
+        )
     )
     run_ids = [r["id"] for r in project_runs]
     if not run_ids:
         return []
 
-    events = rows(client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute())
+    events = rows(
+        conn.execute(
+            text("select * from run_events where run_id = any(cast(:ids as uuid[])) order by created_at"),
+            {"ids": run_ids},
+        )
+    )
     guardrails = rows(
-        client.table("guardrail_events").select("*").in_("run_id", run_ids).order("created_at").execute()
+        conn.execute(
+            text("select * from guardrail_events where run_id = any(cast(:ids as uuid[])) order by created_at"),
+            {"ids": run_ids},
+        )
     )
     events_by_run: dict[str, list] = {}
     for event in events:
@@ -474,18 +498,21 @@ def list_project_runs(project_id: str, limit: int = 50, user: dict = Depends(get
 
 
 @router.get("/conversations/{conversation_id}/runs", response_model=list[RunOut])
-def list_conversation_runs(conversation_id: str, user: dict = Depends(get_current_user)):
-    client = get_user_client(user["token"])
+def list_conversation_runs(conversation_id: str, conn: Connection = Depends(get_db)):
     conversation_runs = rows(
-        client.table("runs")
-        .select("*")
-        .eq("conversation_id", conversation_id)
-        .order("created_at")
-        .execute()
+        conn.execute(
+            text("select * from runs where conversation_id = :c order by created_at"),
+            {"c": conversation_id},
+        )
     )
     run_ids = [r["id"] for r in conversation_runs]
     events = (
-        rows(client.table("run_events").select("*").in_("run_id", run_ids).order("created_at").execute())
+        rows(
+            conn.execute(
+                text("select * from run_events where run_id = any(cast(:ids as uuid[])) order by created_at"),
+                {"ids": run_ids},
+            )
+        )
         if run_ids
         else []
     )

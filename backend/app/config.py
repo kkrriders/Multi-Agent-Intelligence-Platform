@@ -2,8 +2,9 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    supabase_url: str
-    supabase_anon_key: str
+    database_url: str
+    jwt_secret: str
+    document_storage_dir: str = "./data/documents"
     groq_api_key: str
     groq_base_url: str | None = None  # override for AIRRA's mock-llm chaos scenario
     openrouter_api_key: str | None = None  # optional: orchestrator routing backup, see app/graph/routing.py
@@ -26,3 +27,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue] — required fields come from env/.env at runtime
+
+if len(settings.jwt_secret) < 32:
+    raise RuntimeError("JWT_SECRET must be at least 32 characters")

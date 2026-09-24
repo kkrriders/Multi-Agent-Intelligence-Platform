@@ -1,8 +1,8 @@
 import os
 import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -30,9 +30,8 @@ def test_run_create_rejects_both_input_and_template():
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_create_run_executes_graph_and_records_events(auth_headers, qdrant_available):
     project_response = client.post("/projects", json={"name": "Run Test Project"}, headers=auth_headers)
@@ -65,9 +64,8 @@ def test_create_run_executes_graph_and_records_events(auth_headers, qdrant_avail
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_second_run_in_conversation_recalls_first(auth_headers, qdrant_available):
     project_response = client.post("/projects", json={"name": "Recall Test Project"}, headers=auth_headers)
@@ -99,9 +97,8 @@ def test_second_run_in_conversation_recalls_first(auth_headers, qdrant_available
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_run_cites_a_retrieved_document(auth_headers, qdrant_available):
     project_response = client.post("/projects", json={"name": "Citation Test Project"}, headers=auth_headers)
@@ -138,9 +135,8 @@ def test_run_cites_a_retrieved_document(auth_headers, qdrant_available):
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_run_never_cites_a_document_from_a_different_project(auth_headers, qdrant_available):
     project_a = client.post("/projects", json={"name": "Isolation Project A"}, headers=auth_headers).json()
@@ -165,9 +161,8 @@ def test_run_never_cites_a_document_from_a_different_project(auth_headers, qdran
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_list_project_runs_spans_conversations_newest_first(auth_headers, qdrant_available):
     project = client.post("/projects", json={"name": "Obs Project"}, headers=auth_headers).json()
@@ -190,9 +185,8 @@ def test_list_project_runs_spans_conversations_newest_first(auth_headers, qdrant
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_run_from_template_renders_and_records_prompt_used(auth_headers, qdrant_available):
     pid = client.post("/projects", json={"name": "PM run"}, headers=auth_headers).json()["id"]
@@ -224,9 +218,8 @@ def test_run_from_template_renders_and_records_prompt_used(auth_headers, qdrant_
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_run_calls_a_registered_get_tool(auth_headers, qdrant_available):
     project = client.post("/projects", json={"name": "Tool Loop Project"}, headers=auth_headers).json()
@@ -259,9 +252,8 @@ def test_run_calls_a_registered_get_tool(auth_headers, qdrant_available):
 
 
 @pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 def test_injection_input_is_blocked_before_the_graph_runs(auth_headers, qdrant_available):
     project = client.post("/projects", json={"name": "GR Block"}, headers=auth_headers).json()
@@ -283,9 +275,8 @@ def test_injection_input_is_blocked_before_the_graph_runs(auth_headers, qdrant_a
 # --- Phase 3, Sub-project 1: Token Optimization (gated integration) ---
 
 _NEEDS_STACK = pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost"
-    or os.environ.get("GROQ_API_KEY", "test") == "test",
-    reason="Real Supabase project and GROQ_API_KEY required for this integration test",
+    os.environ.get("GROQ_API_KEY", "test") == "test",
+    reason="Real GROQ_API_KEY required for this integration test",
 )
 
 

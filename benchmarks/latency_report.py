@@ -10,7 +10,7 @@ so quantiles are computed here directly from one /metrics text-exposition
 snapshot rather than via PromQL histogram_quantile().
 
 Per-node p50/p95/p99 needs no auth. The stage breakdown needs
-SUPABASE_TEST_USER_TOKEN (see benchmarks/_platform_data.py) and is skipped,
+a reachable Postgres (DATABASE_URL; see benchmarks/_platform_data.py) and is skipped,
 not faked, if that isn't set.
 
     python benchmarks/latency_report.py
@@ -141,7 +141,7 @@ def main() -> int:
     print("approximate — includes DB round-trip time between steps, not pure compute)")
     stages = stage_latency_from_events()
     if stages is None:
-        print("  SKIPPED — SUPABASE_TEST_USER_TOKEN not set or no run data. Not faked.")
+        print("  SKIPPED — Postgres not reachable or no run data. Not faked.")
     else:
         for transition, s in stages.items():
             print(f"  {transition:<45} n={s['n']:<4} mean={s['mean_ms']}ms")

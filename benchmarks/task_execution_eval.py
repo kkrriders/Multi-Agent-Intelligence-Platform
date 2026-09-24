@@ -6,13 +6,12 @@ aggregate() grading the offline eval uses, but over real POST /runs calls
 through the live orchestrator (guardrails -> graph -> persistence), so
 task success is measured against actual production-path behavior.
 
-Auth follows the same convention as labs/integration/run-traffic.ps1 in the
-AIRRA repo: password-grant sign-in (sign-up on first use) against the same
-shared Supabase project, using its fixed test-fixture credentials.
+Auth: logs in through the backend's POST /auth/login (signing up on first
+use) with a fixed test-fixture account.
 
 Needs the platform backend reachable (default http://localhost:8010) and
-GROQ_API_KEY/SUPABASE_URL/SUPABASE_ANON_KEY loadable from the repo-root
-.env (same as every other backend/app import already assumes).
+GROQ_API_KEY/DATABASE_URL/JWT_SECRET loadable from the repo-root .env (same
+as every other backend/app import already assumes).
 
     python benchmarks/task_execution_eval.py
 """
@@ -25,25 +24,23 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from app.config import settings  # noqa: E402
 from app.evals import PASS_THRESHOLD, aggregate, judge_item  # noqa: E402
 
 from _task_suite import TASKS, TOOL_NAME, TOOL_URL  # noqa: E402
 
 PLATFORM_URL = "http://localhost:8010"
-EMAIL = "anshuman.aroraak+airra-taskeval@gmail.com"
+EMAIL = "taskeval@local.dev"
 PASSWORD = "hunter2-hunter2"
 PROJECT_NAME = "engineer-task-eval"
 DELAY_SEC = 4  # settings.run_rate_limit_per_min defaults to 20/min
 
 
 def sign_in() -> str:
-    headers = {"apikey": settings.supabase_anon_key, "Content-Type": "application/json"}
     body = {"email": EMAIL, "password": PASSWORD}
-    resp = requests.post(f"{settings.supabase_url}/auth/v1/token?grant_type=password", json=body, headers=headers)
+    resp = requests.post(f"{PLATFORM_URL}/auth/login", json=body)
     if resp.status_code >= 400:
-        requests.post(f"{settings.supabase_url}/auth/v1/signup", json=body, headers=headers)
-        resp = requests.post(f"{settings.supabase_url}/auth/v1/token?grant_type=password", json=body, headers=headers)
+        requests.post(f"{PLATFORM_URL}/auth/signup", json=body)
+        resp = requests.post(f"{PLATFORM_URL}/auth/login", json=body)
         resp.raise_for_status()
     return resp.json()["access_token"]
 

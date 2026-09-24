@@ -6,7 +6,7 @@ success rate, aggregated from existing run_events (no new instrumentation):
 - tool_called events (graph/workers.py tool_runner_node) already carry
   {"tool": ..., "status": ...} per call.
 
-Needs SUPABASE_TEST_USER_TOKEN — see benchmarks/_platform_data.py.
+Needs the local Postgres (DATABASE_URL) — see benchmarks/_platform_data.py.
 
 Deliberately does NOT report a "task success rate": no ground-truth label for
 what a task should accomplish exists outside the offline 20-item golden

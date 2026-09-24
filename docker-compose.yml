@@ -21,6 +21,11 @@ services:
       # Empty = real Groq. Set to http://mock-llm:4000 (chaos.ps1 -Scenario
       # llm-failure) to route every LLM call through the mock gateway instead.
       GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      DATABASE_URL: postgresql+psycopg://maip_app:${MAIP_APP_PASSWORD}@postgres:5432/maip
+      DOCUMENT_STORAGE_DIR: /data/documents
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - documents_data:/data/documents
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status==200 else sys.exit(1)"]
@@ -35,6 +40,8 @@ services:
     depends_on:
       qdrant:
         condition: service_started
+      postgres:
+        condition: service_healthy
 
   mock-llm:
     # Groq-compatible test double for the LLM-provider-failure chaos scenario.
@@ -56,8 +63,6 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8010}
     ports:
       # host 3002 — AIRRA's frontend publishes 3000. Container port unchanged.
@@ -78,6 +83,27 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: maip
+      MAIP_APP_PASSWORD: ${MAIP_APP_PASSWORD:?set MAIP_APP_PASSWORD in .env}
+    ports:
+      - "5433:5432"   # host 5433: a native Postgres on this machine already owns 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db:/db:ro
+      - ./backend/migrations:/migrations:ro
+      - ./backend/db/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d maip"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.19.0
@@ -102,3 +128,5 @@ networks:
 
 volumes:
   qdrant_data:
+  postgres_data:
+  documents_data:

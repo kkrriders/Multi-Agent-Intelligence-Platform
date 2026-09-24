@@ -5,10 +5,12 @@ from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 
 from app.config import settings
+from sqlalchemy import Connection
+from sqlalchemy import text as sql
+
 from app.db import rows
 
 COLLECTION = "documents"
-BUCKET = "documents"
 SCORE_THRESHOLD = 0.5
 KEYWORD_MATCH_SCORE = 0.5
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
@@ -91,7 +93,7 @@ def delete_document_vectors(document_id: str) -> None:
     )
 
 
-def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5, mode: str = "hybrid") -> list[dict]:
+def retrieve_chunks(conn: Connection, project_id: str, query: str, top_k: int = 5, mode: str = "hybrid") -> list[dict]:
     """mode: "hybrid" (default, vector + keyword), "vector", or "keyword" —
     the ablation modes exist for benchmarks/rag_ablation.py, not product use."""
     merged: dict[str, dict] = {}
@@ -113,12 +115,15 @@ def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5, mode: s
 
     if mode in ("hybrid", "keyword"):
         keyword_rows = rows(
-            client.table("document_chunks")
-            .select("id, document_id, chunk_index, content, documents(filename)")
-            .eq("project_id", project_id)
-            .limit(top_k)
-            .text_search("content_tsv", query, options={"type": "plain", "config": "english"})
-            .execute()
+            conn.execute(
+                sql(
+                    "select c.id, c.document_id, c.chunk_index, c.content, d.filename "
+                    "from document_chunks c join documents d on d.id = c.document_id "
+                    "where c.project_id = :pid and c.content_tsv @@ plainto_tsquery('english', :q) "
+                    "limit :k"
+                ),
+                {"pid": project_id, "q": query, "k": top_k},
+            )
         )
         for row in keyword_rows:
             if row["id"] not in merged:
@@ -128,7 +133,7 @@ def retrieve_chunks(client, project_id: str, query: str, top_k: int = 5, mode: s
                     "document_id": row["document_id"],
                     "chunk_id": row["id"],
                     "chunk_index": row["chunk_index"],
-                    "filename": row["documents"]["filename"],
+                    "filename": row["filename"],
                     "content": row["content"],
                 }
 

@@ -11,7 +11,7 @@ export default async function ProjectWorkspacePage({
   return (
     <>
       <AppHeader />
-      <main className="mx-auto w-full min-w-0 max-w-5xl px-6 py-16">
+      <main className="mx-auto w-full min-w-0 max-w-[1600px] px-6 py-10 lg:px-10">
         <Link
           href="/dashboard"
           className="inline-block text-sm text-muted-foreground transition-colors hover:text-foreground"

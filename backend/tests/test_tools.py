@@ -1,8 +1,7 @@
 import os
-import pytest
 
-os.environ.setdefault("SUPABASE_URL", "http://localhost")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://maip_app:x@localhost:5433/maip")
+os.environ.setdefault("JWT_SECRET", "t" * 40)
 os.environ.setdefault("GROQ_API_KEY", "test")
 
 from fastapi.testclient import TestClient
@@ -22,10 +21,6 @@ def test_invoke_tool_requires_auth():
     assert response.status_code in (401, 422)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required for this integration test",
-)
 def test_create_list_and_invoke_tool(auth_headers):
     project_response = client.post("/projects", json={"name": "Tool Test Project"}, headers=auth_headers)
     project_id = project_response.json()["id"]
@@ -51,10 +46,6 @@ def test_create_list_and_invoke_tool(auth_headers):
     assert invoke_response.json()["status"] == 200
 
 
-@pytest.mark.skipif(
-    os.environ.get("SUPABASE_URL", "http://localhost") == "http://localhost",
-    reason="Real Supabase project required for this integration test",
-)
 def test_invoke_nonexistent_tool_returns_404(auth_headers):
     response = client.post("/tools/00000000-0000-0000-0000-000000000000/invoke", json={}, headers=auth_headers)
     assert response.status_code == 404
